@@ -90,20 +90,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6" />
               <span>تسجيل الدخول باستخدام Google</span>
             </button>
-
-            <button
-              onClick={() => {
-                onLoginSuccess({
-                  email: 'guest@rinno.local',
-                  name: 'زائر تجريبي',
-                  picture: '',
-                  accessToken: 'mock_token'
-                });
-              }}
-              className="text-gray-400 text-xs hover:text-gray-600 underline"
-            >
-              تجاوز (دخول تجريبي للمعاينة فقط)
-            </button>
           </div>
 
           <p className="text-xs text-gray-400 mt-6">

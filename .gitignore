@@ -42,3 +42,5 @@ ts-debug.log*
 /android/.gradle/
 /ios/App/App/public/
 /ios/App/Pods/
+
+.vercel

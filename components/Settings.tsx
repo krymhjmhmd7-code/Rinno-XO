@@ -5,7 +5,11 @@ import { storageService } from '../services/storage';
 import { sheetsService, getSyncStatus, SyncStatus } from '../services/sheetsService';
 import { AppSettings } from '../types';
 
-export const Settings: React.FC = () => {
+interface SettingsProps {
+  isAdmin?: boolean;
+}
+
+export const Settings: React.FC<SettingsProps> = ({ isAdmin = false }) => {
   const [settings, setSettings] = useState<AppSettings>({});
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -128,6 +132,12 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveEmail = (email: string) => {
+    // Prevent deleting the admin email
+    const currentSettings = storageService.getSettings();
+    if (email === currentSettings.adminEmail) {
+      alert('لا يمكن حذف إيميل المسؤول الرئيسي.');
+      return;
+    }
     const currentList = settings.allowedEmails || [];
     const updatedList = currentList.filter(e => e !== email);
     const newSettings = { ...settings, allowedEmails: updatedList };
@@ -148,54 +158,59 @@ export const Settings: React.FC = () => {
     <div className="space-y-6 max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold text-gray-800">الإعدادات</h2>
 
-      {/* Access Control Section */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-          <Users className="text-purple-600" />
-          صلاحيات الدخول (للحماية)
-        </h3>
-        <p className="text-sm text-gray-500 mb-4">
-          أضف البريد الإلكتروني (Gmail) للأشخاص المسموح لهم بالدخول للنظام.
-          <br />
-          <span className="text-xs text-orange-500">حسابك الحالي مضاف تلقائياً عند أول تشغيل.</span>
-        </p>
+      {/* Access Control Section - Only visible to admin */}
+      {isAdmin && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+            <Users className="text-purple-600" />
+            صلاحيات الدخول (للحماية)
+          </h3>
+          <p className="text-sm text-gray-500 mb-4">
+            أضف البريد الإلكتروني (Gmail) للأشخاص المسموح لهم بالدخول للنظام.
+            <br />
+            <span className="text-xs text-orange-500">أنت المسؤول الرئيسي - يمكنك إضافة أو إزالة المستخدمين.</span>
+          </p>
 
-        <div className="flex gap-2 mb-4">
-          <input
-            type="email"
-            placeholder="example@gmail.com"
-            className="flex-1 p-2 border rounded-lg text-sm"
-            dir="ltr"
-            value={newEmail}
-            onChange={e => setNewEmail(e.target.value)}
-          />
-          <button
-            onClick={handleAddEmail}
-            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
-          >
-            <Plus size={18} />
-            إضافة
-          </button>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="email"
+              placeholder="example@gmail.com"
+              className="flex-1 p-2 border rounded-lg text-sm"
+              dir="ltr"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+            />
+            <button
+              onClick={handleAddEmail}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
+            >
+              <Plus size={18} />
+              إضافة
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {settings.allowedEmails?.map(email => (
+              <div key={email} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm">{email}</span>
+                  {email === settings.adminEmail && (
+                    <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded">المسؤول</span>
+                  )}
+                </div>
+                {email !== settings.adminEmail && (
+                  <button
+                    onClick={() => handleRemoveEmail(email)}
+                    className="text-red-500 hover:text-red-700 p-1"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-
-        <div className="space-y-2">
-          {(!settings.allowedEmails || settings.allowedEmails.length === 0) && (
-            <p className="text-sm text-gray-400 italic text-center py-2">القائمة فارغة - سيسمح لأول شخص بالدخول ويصبح مديراً.</p>
-          )}
-
-          {settings.allowedEmails?.map(email => (
-            <div key={email} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
-              <span className="font-mono text-sm">{email}</span>
-              <button
-                onClick={() => handleRemoveEmail(email)}
-                className="text-red-500 hover:text-red-700 p-1"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Google Sheets Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">

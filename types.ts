@@ -74,6 +74,7 @@ export interface CylinderTransaction {
 export interface AppSettings {
   adminPassword?: string;
   allowedEmails?: string[];
+  adminEmail?: string;
   lastAutoExportDate?: string;
   spreadsheetId?: string;
   backupEmail?: string;

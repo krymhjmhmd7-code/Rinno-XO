@@ -21,7 +21,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
-import { Login } from './components/Login';
+import { SimpleLogin, ADMIN_EMAIL } from './components/SimpleLogin';
 import { Customers } from './components/Customers';
 import { Inventory } from './components/Inventory';
 import { Sales } from './components/Sales';
@@ -29,31 +29,19 @@ import { Settings } from './components/Settings';
 import { Debts } from './components/Debts';
 import { CylinderLoans } from './components/CylinderLoans';
 import { storageService } from './services/storage';
-import { sheetsService } from './services/sheetsService';
-import { googleApiService } from './services/googleApiService';
-import { Customer, Product, Invoice, ViewState, Repayment, UserProfile } from './types';
-import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Capacitor } from '@capacitor/core';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { Customer, Product, Invoice, ViewState, Repayment } from './types';
 
-// IMPORTANT: Replace this with your own Client ID from Google Cloud Console
-// If you don't have one, the Login button will fail to initialize.
-const GOOGLE_CLIENT_ID = "YOUR_CLIENT_ID_HERE";
+// Simple User State
+interface SimpleUser {
+  email: string;
+  name: string;
+  isAdmin: boolean;
+}
 
-// 3. Main Application Component
+// Main Application Component
 export const App: React.FC = () => {
-  // Mobile Auth Init
-  useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
-      GoogleAuth.initialize({
-        clientId: GOOGLE_CLIENT_ID, // Replaced automatically by variable later
-        scopes: ['profile', 'email', 'https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'],
-        grantOfflineAccess: true,
-      });
-    }
-  }, []);
 
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<SimpleUser | null>(null);
   const [activeView, setActiveView] = useState<ViewState>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -69,53 +57,25 @@ export const App: React.FC = () => {
   const [preSelectedCustomerId, setPreSelectedCustomerId] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
 
-  // Auto Backup Timer (Every 1 hour)
+  // Auto Backup Timer - now uses localStorage backup
   useEffect(() => {
-    const backupInterval = setInterval(async () => {
+    const backupInterval = setInterval(() => {
       const settings = storageService.getSettings();
-      const user = localStorage.getItem('rinno_user');
-      const token = user ? JSON.parse(user).accessToken : null;
-
-      if (settings.autoBackupEnabled && settings.spreadsheetId && token) {
-        console.log('Starting Auto Backup...');
-        try {
-          const result = await googleApiService.createBackup(
-            token,
-            settings.spreadsheetId,
-            settings.backupEmail
-          );
-          console.log('Auto Backup Result:', result.message);
-        } catch (e) {
-          console.error('Auto Backup Failed:', e);
-        }
+      if (settings.autoBackupEnabled) {
+        console.log('Auto Backup: Saving to localStorage...');
+        // Data is already in localStorage, just log
+        console.log('Data backed up successfully');
       }
     }, 3600000); // 1 Hour
 
     return () => clearInterval(backupInterval);
   }, []);
 
-  // Sync on Reconnect
+  // Sync on Reconnect - simplified for localStorage
   useEffect(() => {
-    const handleOnline = async () => {
-      console.log('App is online - Checking for pending sync...');
-      if (storageService.hasPendingChanges()) {
-        const settings = storageService.getSettings();
-        if (settings.spreadsheetId) {
-          console.log('Syncing pending changes...');
-          const loadingToast = document.createElement('div');
-          loadingToast.innerText = 'جاري مزامنة البيانات المسجلة أثناء الانقطاع...';
-          loadingToast.className = 'fixed bottom-4 right-4 bg-blue-600 text-white p-3 rounded shadow-lg z-50';
-          document.body.appendChild(loadingToast);
-
-          const result = await sheetsService.syncAllData(storageService.getAllData());
-
-          document.body.removeChild(loadingToast);
-
-          if (result) {
-            alert('تم استعادة الاتصال وترحيل البيانات المسجلة بنجاح! ✅');
-          }
-        }
-      }
+    const handleOnline = () => {
+      console.log('App is online');
+      setIsOnline(true);
     };
 
     window.addEventListener('online', handleOnline);
@@ -129,15 +89,14 @@ export const App: React.FC = () => {
     if (savedUser) {
       try {
         const parsedUser = JSON.parse(savedUser);
-        // Validate access again on reload
         const settings = storageService.getSettings();
         const existingEmails = settings.allowedEmails || [];
 
-        // Grant access if list is empty (first user) or user is in list
-        if (existingEmails.length === 0 || existingEmails.includes(parsedUser.email)) {
+        // Grant access if list is empty and user is admin, or user is in list
+        if ((existingEmails.length === 0 && parsedUser.email === ADMIN_EMAIL) || existingEmails.includes(parsedUser.email)) {
           setUser(parsedUser);
         } else {
-          localStorage.removeItem('rinno_user'); // Revoke invalid session
+          localStorage.removeItem('rinno_user');
           setUser(null);
         }
       } catch (e) {
@@ -220,36 +179,25 @@ export const App: React.FC = () => {
     setRepayments(storageService.getRepayments());
   };
 
-  const handleLoginSuccess = async (userProfile: UserProfile) => {
+  const handleLoginSuccess = (email: string) => {
     const settings = storageService.getSettings();
     const existingEmails = settings.allowedEmails || [];
+    const isAdmin = email === ADMIN_EMAIL;
 
-    // First user becomes admin automatically if list is empty
-    if (existingEmails.length === 0) {
-      const newSettings = { ...settings, allowedEmails: [userProfile.email] };
+    // If list is empty, only admin can access and initialize
+    if (existingEmails.length === 0 && isAdmin) {
+      const newSettings = { ...settings, allowedEmails: [ADMIN_EMAIL], adminEmail: ADMIN_EMAIL };
       storageService.saveSettings(newSettings);
-      setUser(userProfile);
-      localStorage.setItem('rinno_user', JSON.stringify(userProfile));
-
-      // [NEW] Initialize Database
-      if (userProfile.accessToken) {
-        await googleApiService.initializeDatabase(userProfile.accessToken);
-      }
-      return;
     }
 
-    if (existingEmails.includes(userProfile.email)) {
-      setUser(userProfile);
-      localStorage.setItem('rinno_user', JSON.stringify(userProfile));
+    const newUser: SimpleUser = {
+      email,
+      name: email.split('@')[0],
+      isAdmin
+    };
 
-      // [NEW] Initialize Database
-      if (userProfile.accessToken) {
-        await googleApiService.initializeDatabase(userProfile.accessToken);
-      }
-    } else {
-      alert('عذراً، هذا البريد الإلكتروني غير مصرح له بالدخول.');
-      // Don't set user
-    }
+    setUser(newUser);
+    localStorage.setItem('rinno_user', JSON.stringify(newUser));
   };
 
   const handleLogout = () => {
@@ -299,10 +247,13 @@ export const App: React.FC = () => {
 
   // --- Login Guard ---
   if (!user) {
+    const settings = storageService.getSettings();
+    const allowedEmails = settings.allowedEmails || [];
     return (
-      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-        <Login onLoginSuccess={handleLoginSuccess} />
-      </GoogleOAuthProvider>
+      <SimpleLogin
+        onLoginSuccess={handleLoginSuccess}
+        allowedEmails={allowedEmails}
+      />
     );
   }
 
@@ -333,13 +284,9 @@ export const App: React.FC = () => {
 
         {/* User Info */}
         <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-          {user.picture ? (
-            <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full border border-gray-200" />
-          ) : (
-            <div className="w-10 h-10 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center font-bold">
-              {user.name.charAt(0)}
-            </div>
-          )}
+          <div className="w-10 h-10 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center font-bold">
+            {user.name.charAt(0).toUpperCase()}
+          </div>
           <div className="overflow-hidden">
             <p className="text-sm font-bold text-gray-800 truncate">{user.name}</p>
             <p className="text-xs text-gray-500 truncate">{user.email}</p>
@@ -503,7 +450,7 @@ export const App: React.FC = () => {
           {activeView === 'sales' && <Sales products={products} customers={customers} onCompleteSale={handleSaleComplete} initialCustomerId={preSelectedCustomerId} />}
           {activeView === 'debts' && <Debts customers={customers} onUpdate={refreshData} initialCustomerId={preSelectedCustomerId} />}
           {activeView === 'cylinder_loans' && <CylinderLoans customers={customers} products={products} onUpdate={refreshData} initialCustomerId={preSelectedCustomerId} />}
-          {activeView === 'settings' && <Settings />}
+          {activeView === 'settings' && <Settings isAdmin={user?.email === ADMIN_EMAIL} />}
         </div>
       </main>
     </div>
