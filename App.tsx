@@ -18,7 +18,12 @@ import {
   Repeat,
   CalendarClock,
   Flame,
-  ArrowLeft
+  ArrowLeft,
+  Cloud,
+  Calculator as CalculatorIcon,
+  Search,
+  FileText,
+  Phone
 } from 'lucide-react';
 
 import { SimpleLogin, ADMIN_EMAIL } from './components/SimpleLogin';
@@ -28,6 +33,7 @@ import { Sales } from './components/Sales';
 import { Settings } from './components/Settings';
 import { Debts } from './components/Debts';
 import { CylinderLoans } from './components/CylinderLoans';
+import { Calculator } from './components/Calculator';
 import { storageService } from './services/storage';
 import { Customer, Product, Invoice, ViewState, Repayment } from './types';
 
@@ -56,20 +62,9 @@ export const App: React.FC = () => {
   // Navigation State
   const [preSelectedCustomerId, setPreSelectedCustomerId] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const [dashboardSearch, setDashboardSearch] = useState('');
 
-  // Auto Backup Timer - now uses localStorage backup
-  useEffect(() => {
-    const backupInterval = setInterval(() => {
-      const settings = storageService.getSettings();
-      if (settings.autoBackupEnabled) {
-        console.log('Auto Backup: Saving to localStorage...');
-        // Data is already in localStorage, just log
-        console.log('Data backed up successfully');
-      }
-    }, 3600000); // 1 Hour
 
-    return () => clearInterval(backupInterval);
-  }, []);
 
   // Sync on Reconnect - simplified for localStorage
   useEffect(() => {
@@ -104,16 +99,42 @@ export const App: React.FC = () => {
       }
     }
 
+    // Load initial data from LocalStorage
+    storageService.recalculateCustomerBalances(); // Fix balances on local data first
     setCustomers(storageService.getCustomers());
     setProducts(storageService.getProducts());
     setInvoices(storageService.getInvoices());
     setRepayments(storageService.getRepayments());
 
+    // Trigger Sync from Turso (if online)
+    const syncData = async () => {
+      if (navigator.onLine) {
+        setIsSyncing(true);
+        console.log('Starting active sync from Turso...');
+        // Initialize DB tables first to ensure metadata table exists
+        const { initializeDatabase } = await import('./services/dbService');
+        await initializeDatabase();
+
+        await storageService.syncAllFromDb();
+
+        // Recalculate balances AFTER sync to fix any discrepancies
+        storageService.recalculateCustomerBalances();
+
+        // Refresh state after sync with corrected balances
+        setCustomers(storageService.getCustomers());
+        setProducts(storageService.getProducts());
+        setInvoices(storageService.getInvoices());
+        setRepayments(storageService.getRepayments());
+        setIsSyncing(false);
+        console.log('Active sync completed');
+      }
+    };
+    syncData();
+
     // Online Status Listeners
     const handleOnline = () => {
       setIsOnline(true);
-      setIsSyncing(true);
-      setTimeout(() => setIsSyncing(false), 2000); // Simulate sync
+      syncData(); // Re-sync when coming back online
     };
     const handleOffline = () => setIsOnline(false);
 
@@ -122,14 +143,17 @@ export const App: React.FC = () => {
 
     // Auto Export Timer
     const exportTimer = setInterval(() => {
+      const settings = storageService.getSettings();
       const now = new Date();
       if (now.getHours() === 22 && now.getMinutes() === 0) {
-        const settings = storageService.getSettings();
         const todayStr = now.toDateString();
 
-        if (settings.lastAutoExportDate !== todayStr) {
+        // Updated to use lastBackupDate instead of legacy property
+        const lastBackupStr = settings.lastBackupDate ? new Date(settings.lastBackupDate).toDateString() : '';
+
+        if (lastBackupStr !== todayStr) {
           storageService.exportDatabaseToExcel();
-          storageService.saveSettings({ ...settings, lastAutoExportDate: todayStr });
+          // exportDatabaseToExcel updates the date automatically now
         }
       }
     }, 60000);
@@ -196,6 +220,14 @@ export const App: React.FC = () => {
       isAdmin
     };
 
+    // Initialize Database Tables if connected
+    import('./services/dbService').then(({ initializeDatabase }) => {
+      initializeDatabase().then(success => {
+        if (success) console.log('Database initialized successfully');
+        else console.error('Failed to initialize database tables');
+      });
+    });
+
     setUser(newUser);
     localStorage.setItem('rinno_user', JSON.stringify(newUser));
   };
@@ -231,7 +263,7 @@ export const App: React.FC = () => {
     const custRepayments = repayments.filter(r => r.customerId === customerId);
     if (custRepayments.length === 0) return 'لا يوجد سداد';
     const last = custRepayments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-    return new Date(last.date).toLocaleDateString('ar-EG');
+    return new Date(last.date).toLocaleDateString('en-US');
   };
 
   const NavItem = ({ view, icon: Icon, label }: { view: ViewState, icon: any, label: string }) => (
@@ -300,6 +332,7 @@ export const App: React.FC = () => {
           <NavItem view="sales" icon={ShoppingCart} label="بيع جديد" />
           <NavItem view="debts" icon={Wallet} label="الديون" />
           <NavItem view="cylinder_loans" icon={Repeat} label="مداينة الاسطوانات" />
+          <NavItem view="calculator" icon={CalculatorIcon} label="الآلة الحاسبة" />
           <div className="pt-4 mt-4 border-t border-gray-100">
             <NavItem view="settings" icon={SettingsIcon} label="الإعدادات" />
             <button
@@ -327,9 +360,20 @@ export const App: React.FC = () => {
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="bg-white p-4 border-b border-gray-200 flex justify-between items-center lg:hidden shrink-0">
-          <button onClick={() => setIsSidebarOpen(true)} className="text-gray-600">
-            <Menu size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setIsSidebarOpen(true)} className="text-gray-600">
+              <Menu size={24} />
+            </button>
+            {activeView !== 'dashboard' && (
+              <button
+                onClick={() => setActiveView('dashboard')}
+                className="flex items-center gap-1 text-primary-600 font-bold text-sm bg-primary-50 px-3 py-1.5 rounded-lg"
+              >
+                <LayoutDashboard size={16} />
+                <span>الرئيسية</span>
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <span className="font-black text-gray-800 text-lg">Rinno <span className="text-primary-600">OX</span></span>
           </div>
@@ -338,98 +382,204 @@ export const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 lg:p-8">
           {activeView === 'dashboard' && (
             <div className="space-y-6 max-w-6xl mx-auto pb-safe">
+              {/* Header */}
               <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800">نظرة عامة</h2>
-                <div className="text-sm text-gray-500">{new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                <div className="text-sm text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
               </div>
 
-              <div
-                className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition group flex flex-col md:flex-row items-center justify-between gap-4"
-                onClick={() => setActiveView('customers')}
-              >
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                  <div className="p-4 bg-primary-50 text-primary-600 rounded-2xl shrink-0">
-                    <Users size={32} />
+              {/* Smart Backup Alert */}
+              {(() => {
+                const settings = storageService.getSettings();
+                const lastDate = settings.lastBackupDate ? new Date(settings.lastBackupDate) : new Date(0);
+                const now = new Date();
+                const diffHours = Math.abs(now.getTime() - lastDate.getTime()) / 36e5;
+
+                if (diffHours > 24) {
+                  return (
+                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center justify-between shadow-sm animate-pulse">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-orange-100 rounded-full text-orange-600">
+                          <Cloud size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-orange-800">تذكير النسخ الاحتياطي 🔔</h4>
+                          <p className="text-xs text-orange-600">لم تقم بحفظ نسخة منذ {Math.floor(diffHours)} ساعة.</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const file = storageService.exportDatabaseToExcel(true) as File;
+                            if (navigator.share) {
+                              await navigator.share({
+                                title: 'Rinno Backup',
+                                text: `نسخة احتياطية - ${new Date().toLocaleDateString()}`,
+                                files: [file]
+                              });
+                              window.location.reload();
+                            } else {
+                              storageService.exportDatabaseToExcel();
+                              window.location.reload();
+                            }
+                          } catch (e) { console.error(e); }
+                        }}
+                        className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-bold shadow hover:bg-orange-700 transition"
+                      >
+                        حفظ ومشاركة الآن
+                      </button>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button
+                  onClick={() => setActiveView('sales')}
+                  className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-primary-500 to-blue-600 text-white rounded-xl shadow-lg hover:shadow-xl transition active:scale-95"
+                >
+                  <ShoppingCart size={28} />
+                  <span className="font-bold text-sm">بيع جديد</span>
+                </button>
+                <button
+                  onClick={() => setActiveView('debts')}
+                  className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-xl shadow-lg hover:shadow-xl transition active:scale-95"
+                >
+                  <Wallet size={28} />
+                  <span className="font-bold text-sm">تسجيل سداد</span>
+                </button>
+                <button
+                  onClick={() => setActiveView('cylinder_loans')}
+                  className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-xl shadow-lg hover:shadow-xl transition active:scale-95"
+                >
+                  <Cylinder size={28} />
+                  <span className="font-bold text-sm">مداينة اسطوانات</span>
+                </button>
+                <button
+                  onClick={() => setActiveView('customers')}
+                  className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-orange-500 to-red-500 text-white rounded-xl shadow-lg hover:shadow-xl transition active:scale-95"
+                >
+                  <Users size={28} />
+                  <span className="font-bold text-sm">سجل الزبائن</span>
+                </button>
+              </div>
+
+              {/* Customer List with Search - Full Details */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row items-center gap-3 justify-between bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    <Users className="text-primary-600" size={24} />
+                    <h3 className="font-bold text-gray-800">قائمة الزبائن ({customers.length})</h3>
                   </div>
-                  <div>
-                    <h3 className="text-2xl font-black text-gray-800 group-hover:text-primary-600 transition">الزبائن</h3>
-                    <p className="text-gray-500">إدارة سجل الزبائن ({customers.length})، الديون، والطلبات.</p>
+                  <div className="relative w-full md:w-80">
+                    <input
+                      type="text"
+                      placeholder="بحث بالاسم أو الرقم..."
+                      value={dashboardSearch}
+                      onChange={(e) => setDashboardSearch(e.target.value)}
+                      className="w-full p-3 pr-10 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 transition"
+                    />
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                   </div>
                 </div>
-                <div className="hidden md:flex items-center gap-2 text-primary-600 font-bold bg-primary-50 px-4 py-2 rounded-lg group-hover:bg-primary-100 transition">
-                  <span>عرض القائمة</span>
-                  <ArrowLeft size={20} />
+                <div className="overflow-y-auto">
+                  {customers
+                    .filter(c =>
+                      dashboardSearch === '' ||
+                      c.name.includes(dashboardSearch) ||
+                      c.phone.includes(dashboardSearch) ||
+                      c.serialNumber.toString().includes(dashboardSearch)
+                    )
+                    .map(customer => (
+                      <div
+                        key={customer.id}
+                        className="p-4 border-b border-gray-100 hover:bg-gray-50 transition"
+                      >
+                        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="w-12 h-12 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center font-bold text-xl shrink-0">
+                              {customer.serialNumber}
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-bold text-lg text-gray-800">{customer.name}</h4>
+                              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 mt-1">
+                                <span className="flex items-center gap-1"><Phone size={14} /> {customer.phone}</span>
+                                <span className="text-gray-300">|</span>
+                                <span>{customer.city}</span>
+                                {customer.cylinderBalance && Object.values(customer.cylinderBalance).reduce((a, b) => a + b, 0) > 0 && (
+                                  <>
+                                    <span className="text-gray-300">|</span>
+                                    <span className="text-purple-600 font-bold flex items-center gap-1">
+                                      <Cylinder size={14} /> {Object.values(customer.cylinderBalance).reduce((a, b) => a + b, 0)} أسطوانة
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 w-full md:w-auto">
+                            <span className={`font-black text-xl px-4 py-2 rounded-lg ${customer.balance > 0 ? 'bg-red-50 text-red-600' :
+                              customer.balance < 0 ? 'bg-green-50 text-green-600' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>
+                              {customer.balance === 0 ? '0 شيكل' : customer.balance > 0 ? `${customer.balance} عليه` : `${Math.abs(customer.balance)} له`}
+                            </span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('sales'); }}
+                                className="flex flex-col items-center p-3 px-8 bg-primary-100 hover:bg-primary-200 text-primary-700 rounded-xl transition min-w-[100px]"
+                              >
+                                <span className="text-xs font-bold mb-1">بيع</span>
+                                <ShoppingCart size={24} />
+                              </button>
+                              <button
+                                onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('debts'); }}
+                                className="flex flex-col items-center p-3 px-4 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl transition min-w-[50px]"
+                              >
+                                <span className="text-xs font-bold mb-1">سداد</span>
+                                <Wallet size={24} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  }
                 </div>
               </div>
 
+              {/* Stats Cards - At Bottom */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm text-gray-500 mb-1">مبيعات اليوم</p>
-                      <h3 className="text-5xl font-black text-gray-800">{totalRevenueToday.toLocaleString()} <span className="text-xl font-normal text-gray-400">شيكل</span></h3>
+                      <h3 className="text-4xl font-black text-gray-800">{totalRevenueToday.toLocaleString()} <span className="text-lg font-normal text-gray-400">شيكل</span></h3>
                     </div>
                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><TrendingUp size={24} /></div>
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition" onClick={() => setActiveView('debts')}>
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition" onClick={() => setActiveView('debts')}>
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm text-gray-500 mb-1">ديون على الزبائن</p>
-                      <h3 className="text-5xl font-black text-red-600">{totalReceivables.toLocaleString()} <span className="text-xl font-normal text-red-300">شيكل</span></h3>
+                      <h3 className="text-4xl font-black text-red-600">{totalReceivables.toLocaleString()} <span className="text-lg font-normal text-red-300">شيكل</span></h3>
                     </div>
                     <div className="p-2 bg-red-100 text-red-600 rounded-lg"><AlertOctagon size={24} /></div>
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm text-gray-500 mb-1">ديون للزبائن</p>
-                      <h3 className="text-5xl font-black text-green-600">{totalPayables.toLocaleString()} <span className="text-xl font-normal text-green-300">شيكل</span></h3>
+                      <h3 className="text-4xl font-black text-green-600">{totalPayables.toLocaleString()} <span className="text-lg font-normal text-green-300">شيكل</span></h3>
                     </div>
                     <div className="p-2 bg-green-100 text-green-600 rounded-lg"><Banknote size={24} /></div>
                   </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex items-center gap-2">
-                  <CalendarClock className="text-orange-500" size={24} />
-                  <h3 className="font-bold text-gray-800">ديون راكدة (لم يتم السداد منذ +30 يوم)</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-right">
-                    <thead className="bg-gray-50 text-gray-600 text-sm">
-                      <tr>
-                        <th className="p-4">الزبون</th>
-                        <th className="p-4">إجمالي الدين</th>
-                        <th className="p-4">آخر دفعة سداد</th>
-                        <th className="p-4">إجراء</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {stagnantDebtors.slice(0, 10).map(customer => (
-                        <tr key={customer.id} className="hover:bg-gray-50 transition">
-                          <td className="p-4 font-bold text-gray-800">
-                            {customer.name}
-                            <span className="block text-xs text-gray-500 font-normal">{customer.phone}</span>
-                          </td>
-                          <td className="p-4 font-black text-xl text-red-600">{customer.balance}</td>
-                          <td className="p-4 text-gray-500 text-sm">{getLastRepaymentDate(customer.id)}</td>
-                          <td className="p-4">
-                            <button
-                              onClick={() => { setActiveView('debts'); setPreSelectedCustomerId(customer.id); }}
-                              className="text-xs bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1 rounded-lg font-bold transition"
-                            >
-                              متابعة الدين
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </div>
             </div>
@@ -451,6 +601,7 @@ export const App: React.FC = () => {
           {activeView === 'debts' && <Debts customers={customers} onUpdate={refreshData} initialCustomerId={preSelectedCustomerId} />}
           {activeView === 'cylinder_loans' && <CylinderLoans customers={customers} products={products} onUpdate={refreshData} initialCustomerId={preSelectedCustomerId} />}
           {activeView === 'settings' && <Settings isAdmin={user?.email === ADMIN_EMAIL} />}
+          {activeView === 'calculator' && <Calculator />}
         </div>
       </main>
     </div>
