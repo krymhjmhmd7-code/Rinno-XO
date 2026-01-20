@@ -10,9 +10,9 @@ interface CustomerHistoryProps {
     history: HistoryItem[];
     onClose: () => void;
     onPrintInvoice: (inv: Invoice) => void;
-    onSendInvoiceWhatsApp: (inv: Invoice, customer: Customer) => void;
+    onShareInvoice: (inv: Invoice, customer: Customer) => void;
     onPrintHistory: (customer: Customer, history: HistoryItem[]) => void;
-    onSendHistoryWhatsApp: (customer: Customer, history: HistoryItem[]) => void;
+    onShareHistory: (customer: Customer, history: HistoryItem[]) => void;
     formatBalance: (bal: number) => string;
     formatBalanceColor: (bal: number) => string;
 }
@@ -22,12 +22,25 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     history,
     onClose,
     onPrintInvoice,
-    onSendInvoiceWhatsApp,
+    onShareInvoice,
     onPrintHistory,
-    onSendHistoryWhatsApp,
+    onShareHistory,
     formatBalance,
     formatBalanceColor,
 }) => {
+    // Calculate balance dynamically from history
+    const calculatedBalance = history.reduce((acc, item) => {
+        if (item.type === 'invoice') {
+            const inv = item as Invoice;
+            // Add debt amount (totalAmount - payments)
+            return acc + (inv.paymentDetails?.debt || 0);
+        } else {
+            const rep = item as Repayment;
+            // Subtract repayment
+            return acc - rep.amount;
+        }
+    }, 0);
+
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-5xl p-6 h-[80vh] flex flex-col">
@@ -39,9 +52,10 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                             <span className="text-sm font-normal text-gray-500 mr-2">(#{customer.serialNumber})</span>
                         </h3>
                         <p className="text-lg text-gray-600 mt-1">
-                            الرصيد الحالي: <span className={`font-bold ${formatBalanceColor(customer.balance)}`}>{formatBalance(customer.balance)}</span>
+                            الرصيد الحالي: <span className={`font-bold ${formatBalanceColor(calculatedBalance)}`}>{formatBalance(calculatedBalance)}</span>
                         </p>
                     </div>
+
 
                     <div className="flex gap-2 self-end">
                         <button
@@ -52,11 +66,11 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                             طباعة كشف
                         </button>
                         <button
-                            onClick={() => onSendHistoryWhatsApp(customer, history)}
-                            className="bg-green-50 hover:bg-green-100 text-green-700 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-bold"
+                            onClick={() => onShareHistory(customer, history)}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-bold"
                         >
                             <Share2 size={18} />
-                            إرسال واتساب
+                            مشاركة كشف
                         </button>
                         <button onClick={onClose} className="bg-gray-100 hover:bg-red-50 hover:text-red-600 p-2 rounded-lg transition">
                             <X size={24} />
@@ -87,7 +101,7 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
 
                                     return (
                                         <tr key={item.id} className={`hover:bg-gray-50 ${isInvoice ? '' : 'bg-green-50/50'}`}>
-                                            <td className="p-4 text-gray-600">{new Date(item.date).toLocaleDateString('ar-EG')}</td>
+                                            <td className="p-4 text-gray-600">{new Date(item.date).toLocaleDateString('en-US')}</td>
 
                                             <td className="p-4">
                                                 {isInvoice ? (
@@ -139,9 +153,9 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                                                             <Printer size={16} />
                                                         </button>
                                                         <button
-                                                            onClick={() => onSendInvoiceWhatsApp(inv, customer)}
-                                                            className="p-1.5 text-green-500 hover:text-green-700 bg-white border rounded shadow-sm"
-                                                            title="واتساب"
+                                                            onClick={() => onShareInvoice(inv, customer)}
+                                                            className="p-1.5 text-blue-500 hover:text-blue-700 bg-white border rounded shadow-sm"
+                                                            title="مشاركة"
                                                         >
                                                             <Share2 size={16} />
                                                         </button>

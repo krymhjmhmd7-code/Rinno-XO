@@ -1,9 +1,12 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Customer, Product, Invoice, Repayment } from '../types';
-import { Plus, Search, Settings, Trash2, X, LayoutGrid, List } from 'lucide-react';
+import { Plus, Search, Settings, Trash2, X, LayoutGrid, List, Printer } from 'lucide-react';
 import { storageService } from '../services/storage';
+import html2canvas from 'html2canvas';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 
 // Import sub-components
 import { CustomerForm } from './CustomerForm';
@@ -227,10 +230,12 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
     return 'text-gray-400';
   };
 
+  // State for Print Preview Modal
+  const [printPreviewHtml, setPrintPreviewHtml] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   const printInvoice = (inv: Invoice) => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
+    const html = `
         <html>
           <head>
             <title>فاتورة #${inv.id.slice(-6)}</title>
@@ -248,7 +253,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
           <body>
             <div class="header">
               <h1>GasPro - فاتورة غاز</h1>
-              <p>تاريخ: ${new Date(inv.date).toLocaleDateString('ar-EG')}</p>
+              <p>تاريخ: ${new Date(inv.date).toLocaleDateString('en-US')}</p>
             </div>
             <div class="info">
               <p><strong>الزبون:</strong> ${inv.customerName}</p>
@@ -277,53 +282,82 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
             <div class="footer">
               <p>شكراً لتعاملكم معنا</p>
             </div>
-            <script>window.print();</script>
           </body>
         </html>
-      `);
-      printWindow.document.close();
-    }
+      `;
+    setPrintPreviewHtml(html);
   };
 
-  const sendInvoiceWhatsApp = (inv: Invoice, customer: Customer) => {
-    if (!customer.whatsapp) {
-      alert("لا يوجد رقم واتساب مسجل لهذا الزبون");
+  // Refs for hidden templates
+  const invoiceTemplateRef = useRef<HTMLDivElement>(null);
+  const historyTemplateRef = useRef<HTMLDivElement>(null);
+  const [shareInvoiceData, setShareInvoiceData] = useState<{ inv: Invoice; customer: Customer } | null>(null);
+  const [shareHistoryData, setShareHistoryData] = useState<{ customer: Customer; history: HistoryItem[] } | null>(null);
+
+  const shareInvoice = async (inv: Invoice, customer: Customer) => {
+    // Set data and wait for render
+    setShareInvoiceData({ inv, customer });
+
+    // Wait for next frame to ensure DOM is updated
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    if (!invoiceTemplateRef.current) {
+      alert('خطأ في إنشاء الصورة');
+      setShareInvoiceData(null);
       return;
     }
 
-    const itemsList = inv.items.map(i => `- ${i.productName} (العدد: ${i.quantity})`).join('\n');
-    let paymentText = '';
-    if (inv.paymentDetails.cash > 0) paymentText += `\n- نقداً: ${inv.paymentDetails.cash} شيكل`;
-    if (inv.paymentDetails.cheque > 0) paymentText += `\n- شيك: ${inv.paymentDetails.cheque} شيكل`;
+    try {
+      const canvas = await html2canvas(invoiceTemplateRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
 
-    // Formatting debt/credit in message
-    if (inv.paymentDetails.debt > 0) {
-      paymentText += `\n- متبقي عليك: ${inv.paymentDetails.debt} شيكل`;
-    } else if (inv.paymentDetails.debt < 0) {
-      paymentText += `\n- متبقي لك (رصيد): ${Math.abs(inv.paymentDetails.debt)} شيكل`;
+      // Convert canvas to base64
+      const base64Data = canvas.toDataURL('image/png').split(',')[1];
+      const fileName = `invoice_${inv.id.slice(-6)}.png`;
+
+      try {
+        // Save to cache directory
+        const savedFile = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Cache,
+        });
+
+        // Share using Capacitor Share
+        await Share.share({
+          title: `فاتورة #${inv.id.slice(-6)}`,
+          text: `فاتورة للزبون ${customer.name}`,
+          url: savedFile.uri,
+          dialogTitle: 'مشاركة الفاتورة',
+        });
+      } catch (shareError: any) {
+        console.error('Share failed:', shareError);
+        // Fallback: try web download
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob((b) => resolve(b), 'image/png', 1.0);
+        });
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+      setShareInvoiceData(null);
+    } catch (err) {
+      console.error('Error creating image:', err);
+      alert('خطأ في إنشاء الصورة');
+      setShareInvoiceData(null);
     }
-
-    const message = `
-*فاتورة مبيعات - GasPro*
-التاريخ: ${new Date(inv.date).toLocaleDateString('ar-EG')}
-رقم الفاتورة: ${inv.id.slice(-6)}
-----------------
-${itemsList}
-----------------
-*المجموع:* ${inv.totalAmount} شيكل
-${paymentText}
-`.trim();
-
-    const encodedMessage = encodeURIComponent(message);
-    const cleanNumber = customer.whatsapp.replace(/[^0-9+]/g, '');
-    const url = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-    window.open(url, '_blank');
   };
 
   const printHistory = (customer: Customer, history: HistoryItem[]) => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
+    const html = `
         <html>
           <head>
             <title>كشف حساب - ${customer.name}</title>
@@ -347,7 +381,7 @@ ${paymentText}
             <div style="margin-top: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;">
               <p><strong>الاسم:</strong> ${customer.name} (#${customer.serialNumber})</p>
               <p><strong>رقم الجوال:</strong> ${customer.phone}</p>
-              <p><strong>تاريخ الاستخراج:</strong> ${new Date().toLocaleDateString('ar-EG')}</p>
+              <p><strong>تاريخ الاستخراج:</strong> ${new Date().toLocaleDateString('en-US')}</p>
             </div>
             
             <table>
@@ -362,13 +396,13 @@ ${paymentText}
               </thead>
               <tbody>
                 ${history.map(item => {
-        const date = new Date(item.date).toLocaleDateString('ar-EG');
+      const date = new Date(item.date).toLocaleDateString('en-US');
 
-        if (item.type === 'invoice') {
-          const inv = item as Invoice;
-          const details = inv.items.map(i => `${i.productName} (${i.quantity})`).join(', ');
-          // Invoice increases debt (Debit)
-          return `
+      if (item.type === 'invoice') {
+        const inv = item as Invoice;
+        const details = inv.items.map(i => `${i.productName} (${i.quantity})`).join(', ');
+        // Invoice increases debt (Debit)
+        return `
                       <tr class="row-invoice">
                         <td>${date}</td>
                         <td>فاتورة #${inv.id.slice(-6)}</td>
@@ -386,10 +420,10 @@ ${paymentText}
                         </tr>
                       ` : ''}
                      `;
-        } else {
-          const rep = item as Repayment;
-          // Repayment decreases debt (Credit)
-          return `
+      } else {
+        const rep = item as Repayment;
+        // Repayment decreases debt (Credit)
+        return `
                       <tr class="row-repay">
                         <td>${date}</td>
                         <td>سند سداد/قبض</td>
@@ -398,8 +432,8 @@ ${paymentText}
                         <td>${rep.amount}</td>
                       </tr>
                      `;
-        }
-      }).join('')}
+      }
+    }).join('')}
               </tbody>
             </table>
             
@@ -411,56 +445,72 @@ ${paymentText}
                  </span>
               </div>
             </div>
-            <script>window.print();</script>
           </body>
         </html>
-      `);
-      printWindow.document.close();
-    }
+      `;
+    setPrintPreviewHtml(html);
   };
 
-  const sendHistoryWhatsApp = (customer: Customer, history: HistoryItem[]) => {
-    if (!customer.whatsapp) {
-      alert("لا يوجد رقم واتساب مسجل لهذا الزبون");
+  const shareHistory = async (customer: Customer, history: HistoryItem[]) => {
+    // Set data and wait for render
+    setShareHistoryData({ customer, history });
+
+    // Wait for next frame to ensure DOM is updated
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    if (!historyTemplateRef.current) {
+      alert('خطأ في إنشاء الصورة');
+      setShareHistoryData(null);
       return;
     }
 
-    let message = `*كشف حساب - GasPro*\n`;
-    message += `الزبون: ${customer.name}\n`;
-    message += `تاريخ الاستخراج: ${new Date().toLocaleDateString('ar-EG')}\n`;
-    message += `------------------\n`;
+    try {
+      const canvas = await html2canvas(historyTemplateRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
 
-    // Limit to last 15 items
-    const displayItems = history.slice(0, 15);
+      // Convert canvas to base64
+      const base64Data = canvas.toDataURL('image/png').split(',')[1];
+      const fileName = `statement_${customer.serialNumber}.png`;
 
-    displayItems.forEach(item => {
-      const date = new Date(item.date).toLocaleDateString('ar-EG');
+      try {
+        // Save to cache directory
+        const savedFile = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Cache,
+        });
 
-      if (item.type === 'invoice') {
-        const inv = item as Invoice;
-        message += `📄 *${date}* (فاتورة #${inv.id.slice(-6)})\n`;
-        message += `   المبلغ: ${inv.totalAmount} ₪\n`;
-        if (inv.paymentDetails.debt > 0) message += `   بقي عليه: ${inv.paymentDetails.debt}\n`;
-      } else {
-        const rep = item as Repayment;
-        message += `💵 *${date}* (سداد/دفعة)\n`;
-        message += `   المبلغ: ${rep.amount} ₪ (${rep.method === 'cash' ? 'نقد' : 'شيك'})\n`;
-        if (rep.note) message += `   ملاحظة: ${rep.note}\n`;
+        // Share using Capacitor Share
+        await Share.share({
+          title: `كشف حساب - ${customer.name}`,
+          text: `كشف حساب للزبون ${customer.name}`,
+          url: savedFile.uri,
+          dialogTitle: 'مشاركة كشف الحساب',
+        });
+      } catch (shareError: any) {
+        console.error('Share failed:', shareError);
+        // Fallback: try web download
+        const blob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob((b) => resolve(b), 'image/png', 1.0);
+        });
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
       }
-      message += `------------------\n`;
-    });
-
-    if (history.length > 15) {
-      message += `... وهناك ${history.length - 15} حركة سابقة أخرى.\n\n`;
+      setShareHistoryData(null);
+    } catch (err) {
+      console.error('Error creating image:', err);
+      alert('خطأ في إنشاء الصورة');
+      setShareHistoryData(null);
     }
-
-    const balStr = customer.balance > 0 ? `${customer.balance} (عليك)` : `${Math.abs(customer.balance)} (لك)`;
-    message += `\n*الرصيد النهائي الحالي:* ${balStr}`;
-
-    const encodedMessage = encodeURIComponent(message);
-    const cleanNumber = customer.whatsapp.replace(/[^0-9+]/g, '');
-    const url = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-    window.open(url, '_blank');
   };
 
   return (
@@ -581,9 +631,9 @@ ${paymentText}
           history={customerHistory}
           onClose={() => setShowHistoryModal(false)}
           onPrintInvoice={printInvoice}
-          onSendInvoiceWhatsApp={sendInvoiceWhatsApp}
+          onShareInvoice={shareInvoice}
           onPrintHistory={printHistory}
-          onSendHistoryWhatsApp={sendHistoryWhatsApp}
+          onShareHistory={shareHistory}
           formatBalance={formatBalance}
           formatBalanceColor={formatBalanceColor}
         />
@@ -623,6 +673,222 @@ ${paymentText}
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Invoice Template for Image Generation */}
+      {shareInvoiceData && (
+        <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
+          <div
+            ref={invoiceTemplateRef}
+            style={{
+              width: '400px',
+              padding: '24px',
+              fontFamily: 'Arial, sans-serif',
+              direction: 'rtl',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            }}
+          >
+            <div style={{ background: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+              {/* Header */}
+              <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #667eea', paddingBottom: '16px' }}>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#667eea', marginBottom: '4px' }}>Rinno OX</div>
+                <div style={{ fontSize: '12px', color: '#666' }}>نظام إدارة وتوزيع الغاز</div>
+              </div>
+
+              {/* Invoice Info */}
+              <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666', fontSize: '13px' }}>رقم الفاتورة:</span>
+                  <span style={{ fontWeight: 'bold', color: '#333' }}>#{shareInvoiceData.inv.id.slice(-6)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666', fontSize: '13px' }}>التاريخ:</span>
+                  <span style={{ fontWeight: 'bold', color: '#333' }}>{new Date(shareInvoiceData.inv.date).toLocaleDateString('en-US')}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#666', fontSize: '13px' }}>الزبون:</span>
+                  <span style={{ fontWeight: 'bold', color: '#333' }}>{shareInvoiceData.customer.name}</span>
+                </div>
+              </div>
+
+              {/* Items */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '8px' }}>الأصناف:</div>
+                {shareInvoiceData.inv.items.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: idx % 2 === 0 ? '#f0f0f0' : 'white', borderRadius: '4px' }}>
+                    <span>{item.productName}</span>
+                    <span style={{ fontWeight: 'bold' }}>×{item.quantity}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Total */}
+              <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', marginBottom: '4px' }}>المجموع الكلي</div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{shareInvoiceData.inv.totalAmount} ₪</div>
+              </div>
+
+              {/* Payment Details */}
+              <div style={{ marginTop: '16px', fontSize: '13px', color: '#666' }}>
+                {shareInvoiceData.inv.paymentDetails.cash > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>💵 نقداً:</span>
+                    <span>{shareInvoiceData.inv.paymentDetails.cash} ₪</span>
+                  </div>
+                )}
+                {shareInvoiceData.inv.paymentDetails.cheque > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>📝 شيك:</span>
+                    <span>{shareInvoiceData.inv.paymentDetails.cheque} ₪</span>
+                  </div>
+                )}
+                {shareInvoiceData.inv.paymentDetails.debt > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626', fontWeight: 'bold' }}>
+                    <span>⚠️ متبقي:</span>
+                    <span>{shareInvoiceData.inv.paymentDetails.debt} ₪</span>
+                  </div>
+                )}
+                {shareInvoiceData.inv.paymentDetails.debt < 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#16a34a', fontWeight: 'bold' }}>
+                    <span>✅ رصيد لك:</span>
+                    <span>{Math.abs(shareInvoiceData.inv.paymentDetails.debt)} ₪</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden History Template for Image Generation */}
+      {shareHistoryData && (
+        <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
+          <div
+            ref={historyTemplateRef}
+            style={{
+              width: '420px',
+              padding: '24px',
+              fontFamily: 'Arial, sans-serif',
+              direction: 'rtl',
+              background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+            }}
+          >
+            <div style={{ background: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+              {/* Header */}
+              <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #11998e', paddingBottom: '16px' }}>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#11998e', marginBottom: '4px' }}>Rinno OX</div>
+                <div style={{ fontSize: '14px', color: '#333', fontWeight: 'bold' }}>كشف حساب</div>
+              </div>
+
+              {/* Customer Info */}
+              <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666', fontSize: '13px' }}>الزبون:</span>
+                  <span style={{ fontWeight: 'bold', color: '#333' }}>{shareHistoryData.customer.name} (#{shareHistoryData.customer.serialNumber})</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#666', fontSize: '13px' }}>تاريخ الاستخراج:</span>
+                  <span style={{ fontWeight: 'bold', color: '#333' }}>{new Date().toLocaleDateString('en-US')}</span>
+                </div>
+              </div>
+
+              {/* History Items (Last 10) */}
+              <div style={{ marginBottom: '16px', maxHeight: '400px', overflow: 'hidden' }}>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '8px' }}>آخر الحركات:</div>
+                {shareHistoryData.history.slice(0, 10).map((item, idx) => {
+                  const date = new Date(item.date).toLocaleDateString('en-US');
+                  if (item.type === 'invoice') {
+                    const inv = item as Invoice;
+                    const debtAmount = inv.paymentDetails?.debt || 0;
+                    const itemsText = inv.items.map(i => `${i.productName}×${i.quantity}`).join(' | ');
+                    // Only show invoices that affected the balance (debt > 0)
+                    if (debtAmount === 0) {
+                      return (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f0f9ff', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #3b82f6' }}>
+                          <span style={{ fontSize: '12px' }}>📄 {date} - فاتورة #{inv.id.slice(-6)} (مدفوعة)</span>
+                          <span style={{ fontWeight: 'bold', color: '#3b82f6' }}>{inv.totalAmount} ₪</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={idx} style={{ padding: '8px', background: '#fff4f4', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #dc2626' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '12px' }}>📄 {date} - فاتورة #{inv.id.slice(-6)}</span>
+                          <span style={{ fontWeight: 'bold', color: '#dc2626' }}>+{debtAmount} ₪</span>
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#333', fontWeight: '600', background: '#ffe8e8', padding: '6px 8px', borderRadius: '4px' }}>
+                          📦 {itemsText}
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    const rep = item as Repayment;
+                    return (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f0fff4', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #16a34a' }}>
+                        <span style={{ fontSize: '12px' }}>💵 {date} - سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</span>
+                        <span style={{ fontWeight: 'bold', color: '#16a34a' }}>-{rep.amount} ₪</span>
+                      </div>
+                    );
+                  }
+                })}
+                {shareHistoryData.history.length > 10 && (
+                  <div style={{ textAlign: 'center', color: '#666', fontSize: '12px', marginTop: '8px' }}>
+                    +{shareHistoryData.history.length - 10} حركة أخرى
+                  </div>
+                )}
+              </div>
+
+              {/* Balance */}
+              <div style={{ background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', color: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center', marginTop: '16px' }}>
+                <div style={{ fontSize: '12px', marginBottom: '4px' }}>الرصيد الحالي</div>
+                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                  {shareHistoryData.customer.balance > 0 ?
+                    `عليه: ${shareHistoryData.customer.balance}` :
+                    `له: ${Math.abs(shareHistoryData.customer.balance)}`} ₪
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Preview Modal */}
+      {printPreviewHtml && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white w-full h-full max-w-4xl rounded-xl flex flex-col overflow-hidden">
+            <div className="bg-gray-100 p-4 border-b flex justify-between items-center">
+              <h3 className="font-bold text-lg">معاينة للطباعة</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (iframeRef.current && iframeRef.current.contentWindow) {
+                      iframeRef.current.contentWindow.print();
+                    }
+                  }}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
+                >
+                  <Printer size={20} />
+                  طباعة
+                </button>
+                <button
+                  onClick={() => setPrintPreviewHtml(null)}
+                  className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-gray-50 p-4 relative">
+              <iframe
+                ref={iframeRef}
+                srcDoc={printPreviewHtml}
+                className="w-full h-full bg-white shadow-lg rounded"
+                title="Print Preview"
+              />
             </div>
           </div>
         </div>
