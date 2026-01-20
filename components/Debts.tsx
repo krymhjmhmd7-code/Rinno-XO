@@ -14,7 +14,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
   const [repayments, setRepayments] = useState<Repayment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // UI State - Changed default to 'add_debt'
   const [activeTab, setActiveTab] = useState<'repay' | 'add_debt'>('add_debt');
   const [showDebtorsOnly, setShowDebtorsOnly] = useState(true); // Default: Show Debtors Only (Red)
@@ -52,10 +52,10 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
     const matchesFilter = showDebtorsOnly ? c.balance > 0 : true;
     return matchesSearch && matchesFilter;
   }).sort((a, b) => {
-      // Sort debtors first, then by name
-      if (a.balance > 0 && b.balance <= 0) return -1;
-      if (a.balance <= 0 && b.balance > 0) return 1;
-      return a.name.localeCompare(b.name);
+    // Sort debtors first, then by name
+    if (a.balance > 0 && b.balance <= 0) return -1;
+    if (a.balance <= 0 && b.balance > 0) return 1;
+    return a.name.localeCompare(b.name);
   });
 
   // Function to get the last significant note/statement for a customer
@@ -68,9 +68,9 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
     // Combine and sort by date descending
     const allActivities = [
       ...custRepayments.map(r => ({ date: new Date(r.date), type: 'repayment', note: r.note, amount: r.amount })),
-      ...custInvoices.map(i => ({ 
-        date: new Date(i.date), 
-        type: 'invoice', 
+      ...custInvoices.map(i => ({
+        date: new Date(i.date),
+        type: 'invoice',
         // Check if it's a manual debt (single item usually) or regular invoice
         note: i.items[0]?.productId === 'manual-debt' ? i.items[0].productName : `فاتورة مبيعات`,
         amount: i.totalAmount
@@ -103,14 +103,14 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
 
     storageService.addRepayment(newRepayment);
     setRepayments(storageService.getRepayments());
-    onUpdate(); 
+    onUpdate();
     resetForm();
     showSuccessMessage();
   };
 
   const handleAddOldDebt = () => {
     if (!selectedCustomerId || !amount || Number(amount) <= 0) return;
-    
+
     const customer = customers.find(c => c.id === selectedCustomerId);
     if (!customer) return;
 
@@ -162,7 +162,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
           <div className="p-3 bg-white rounded-full text-red-500 shadow-sm"><Wallet size={32} /></div>
         </div>
         <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 flex justify-between items-center">
-           <div>
+          <div>
             <p className="text-blue-600 font-bold mb-1">عدد المدينين</p>
             <h3 className="text-4xl font-black text-blue-700">{debtorsCount} زبون</h3>
           </div>
@@ -171,20 +171,20 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Action Form */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 sticky top-4 overflow-hidden">
-            
+
             {/* Tabs */}
             <div className="flex border-b border-gray-100">
-              <button 
+              <button
                 onClick={() => { setActiveTab('repay'); resetForm(); }}
                 className={`flex-1 py-3 text-sm font-bold transition ${activeTab === 'repay' ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600' : 'text-gray-500 hover:bg-gray-50'}`}
               >
                 تسجيل سداد
               </button>
-              <button 
+              <button
                 onClick={() => { setActiveTab('add_debt'); resetForm(); }}
                 className={`flex-1 py-3 text-sm font-bold transition ${activeTab === 'add_debt' ? 'bg-red-50 text-red-600 border-b-2 border-red-600' : 'text-gray-500 hover:bg-gray-50'}`}
               >
@@ -196,10 +196,10 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
               <h3 className="font-bold text-lg mb-2 text-gray-800">
                 {activeTab === 'repay' ? 'تسجيل دفعة جديدة' : 'إضافة رصيد سابق (دين)'}
               </h3>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">الزبون</label>
-                <select 
+                <select
                   className="w-full p-3 border rounded-lg bg-gray-50 focus:bg-white"
                   value={selectedCustomerId}
                   onChange={e => setSelectedCustomerId(e.target.value)}
@@ -207,7 +207,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                   <option value="">-- اختر الزبون --</option>
                   {customers.map(c => (
                     <option key={c.id} value={c.id}>
-                       {c.name} ({c.balance > 0 ? `عليه: ${c.balance}` : c.balance < 0 ? `له: ${Math.abs(c.balance)}` : '0'})
+                      {c.name} ({c.balance > 0 ? `عليه: ${c.balance}` : c.balance < 0 ? `له: ${Math.abs(c.balance)}` : '0'})
                     </option>
                   ))}
                 </select>
@@ -217,8 +217,8 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {activeTab === 'repay' ? 'قيمة الدفعة (شيكل)' : 'قيمة الدين (شيكل)'}
                 </label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   className="w-full p-3 border rounded-lg font-bold text-xl"
                   placeholder="0.00"
                   value={amount}
@@ -230,13 +230,13 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">طريقة الدفع</label>
                   <div className="grid grid-cols-2 gap-2">
-                    <button 
+                    <button
                       onClick={() => setMethod('cash')}
                       className={`p-3 rounded-lg border flex items-center justify-center gap-2 font-bold ${method === 'cash' ? 'bg-green-50 border-green-500 text-green-700' : 'border-gray-200 text-gray-600'}`}
                     >
                       <Banknote size={20} /> نقداً
                     </button>
-                    <button 
+                    <button
                       onClick={() => setMethod('cheque')}
                       className={`p-3 rounded-lg border flex items-center justify-center gap-2 font-bold ${method === 'cheque' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'border-gray-200 text-gray-600'}`}
                     >
@@ -248,8 +248,8 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات / بيان</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   className="w-full p-3 border rounded-lg"
                   placeholder={activeTab === 'repay' ? "رقم الشيك، ملاحظات..." : "رصيد افتتاحي، دين سابق..."}
                   value={note}
@@ -263,17 +263,17 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                 </div>
               )}
 
-              <button 
+              <button
                 onClick={activeTab === 'repay' ? handleRepayment : handleAddOldDebt}
                 disabled={!selectedCustomerId || !amount}
                 className={`w-full py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2 transition
-                  ${!selectedCustomerId || !amount 
-                    ? 'bg-gray-300 cursor-not-allowed' 
-                    : activeTab === 'repay' 
-                      ? 'bg-primary-600 hover:bg-primary-700' 
+                  ${!selectedCustomerId || !amount
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : activeTab === 'repay'
+                      ? 'bg-primary-600 hover:bg-primary-700'
                       : 'bg-red-600 hover:bg-red-700'}`}
               >
-                 {activeTab === 'repay' ? 'حفظ السداد' : 'إضافة الدين'}
+                {activeTab === 'repay' ? 'حفظ السداد' : 'إضافة الدين'}
               </button>
             </div>
           </div>
@@ -283,30 +283,30 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[600px]">
             <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
-               <h3 className="font-bold text-gray-800">قائمة الزبائن والأرصدة</h3>
-               <div className="flex items-center gap-2 w-full md:w-auto">
-                  {/* Filter Toggle */}
-                  <button 
-                    onClick={() => setShowDebtorsOnly(!showDebtorsOnly)}
-                    className={`p-2 rounded-lg border flex items-center gap-2 text-sm font-bold transition ${showDebtorsOnly ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-                  >
-                    <Filter size={16} />
-                    {showDebtorsOnly ? 'إظهار المدينين فقط' : 'إظهار الجميع'}
-                  </button>
+              <h3 className="font-bold text-gray-800">قائمة الزبائن والأرصدة</h3>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {/* Filter Toggle */}
+                <button
+                  onClick={() => setShowDebtorsOnly(!showDebtorsOnly)}
+                  className={`p-2 rounded-lg border flex items-center gap-2 text-sm font-bold transition ${showDebtorsOnly ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
+                >
+                  <Filter size={16} />
+                  {showDebtorsOnly ? 'إظهار المدينين فقط' : 'إظهار الجميع'}
+                </button>
 
-                   <div className="relative flex-1 md:w-64">
-                     <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                     <input 
-                       type="text" 
-                       className="w-full pr-10 pl-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-primary-500"
-                       placeholder="بحث..."
-                       value={searchTerm}
-                       onChange={e => setSearchTerm(e.target.value)}
-                     />
-                   </div>
-               </div>
+                <div className="relative flex-1 md:w-64">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  <input
+                    type="text"
+                    className="w-full pr-10 pl-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-primary-500"
+                    placeholder="بحث..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
-            
+
             <div className="overflow-y-auto flex-1">
               <table className="w-full text-right">
                 <thead className="bg-gray-50 text-gray-600 text-sm sticky top-0 z-10">
@@ -331,19 +331,19 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                         </td>
                         <td className="p-4 text-sm text-gray-600 hidden md:table-cell max-w-xs truncate" title={getLastNote(c.id)}>
                           <div className="flex items-center gap-1">
-                             <FileText size={14} className="text-gray-400"/>
-                             {getLastNote(c.id)}
+                            <FileText size={14} className="text-gray-400" />
+                            {getLastNote(c.id)}
                           </div>
                         </td>
                         <td className={`p-4 font-black text-lg ${c.balance > 0 ? 'text-red-600' : c.balance < 0 ? 'text-green-600' : 'text-gray-400'}`}>
                           {c.balance > 0 ? c.balance : c.balance < 0 ? Math.abs(c.balance) + ' (له)' : '0'}
                         </td>
                         <td className="p-4">
-                          <button 
+                          <button
                             onClick={() => handleCustomerSelect(c)}
                             className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition
-                              ${activeTab === 'repay' 
-                                ? 'bg-primary-50 text-primary-600 hover:bg-primary-100' 
+                              ${activeTab === 'repay'
+                                ? 'bg-primary-50 text-primary-600 hover:bg-primary-100'
                                 : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
                           >
                             {activeTab === 'repay' ? 'سداد' : 'إضافة دين'}
@@ -360,7 +360,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
           {/* Recent Repayments History */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-4 border-b border-gray-100">
-               <h3 className="font-bold text-gray-800">آخر عمليات السداد</h3>
+              <h3 className="font-bold text-gray-800">آخر عمليات السداد</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-right">
@@ -376,14 +376,14 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
                 <tbody className="divide-y divide-gray-100">
                   {repayments.slice(0, 5).map(r => (
                     <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="p-4 text-gray-500">{new Date(r.date).toLocaleDateString('ar-EG')}</td>
+                      <td className="p-4 text-gray-500">{new Date(r.date).toLocaleDateString('en-US')}</td>
                       <td className="p-4 font-medium text-gray-800">{r.customerName}</td>
                       <td className="p-4 font-bold text-green-600">{r.amount}</td>
                       <td className="p-4 text-sm">{r.method === 'cash' ? 'نقداً' : 'شيك'}</td>
                       <td className="p-4 text-sm text-gray-500">{r.note || '-'}</td>
                     </tr>
                   ))}
-                   {repayments.length === 0 && (
+                  {repayments.length === 0 && (
                     <tr><td colSpan={5} className="p-8 text-center text-gray-400">لا توجد عمليات سداد مسجلة.</td></tr>
                   )}
                 </tbody>

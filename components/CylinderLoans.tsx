@@ -14,7 +14,7 @@ interface CylinderLoansProps {
 export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, products, onUpdate, initialCustomerId }) => {
   const [transactions, setTransactions] = useState<CylinderTransaction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Form State
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [selectedProductName, setSelectedProductName] = useState('');
@@ -27,7 +27,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   useEffect(() => {
     setTransactions(storageService.getCylinderTransactions());
     if (products.length > 0 && !selectedProductName) {
-        setSelectedProductName(products[0].name);
+      setSelectedProductName(products[0].name);
     }
   }, [products]);
 
@@ -68,10 +68,10 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
     // Logic for Return (IN) validation
     if (type === 'in' && val !== '') {
-       if (num > currentHolding) {
-         setError(`لا يمكن إرجاع ${num} اسطوانة. الزبون بحوزته فقط ${currentHolding}.`);
-         // Optional: Force set to max? No, just warn and block save.
-       }
+      if (num > currentHolding) {
+        setError(`لا يمكن إرجاع ${num} اسطوانة. الزبون بحوزته فقط ${currentHolding}.`);
+        // Optional: Force set to max? No, just warn and block save.
+      }
     }
 
     setQuantity(val === '' ? '' : num);
@@ -88,10 +88,10 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
     // Strict Validation before saving
     if (type === 'in') {
       const currentBalance = customer.cylinderBalance?.[selectedProductName] || 0;
-      
+
       if (currentBalance === 0) {
-         setError(`خطأ: الزبون لا يملك هذا النوع "${selectedProductName}" في ذمته.`);
-         return;
+        setError(`خطأ: الزبون لا يملك هذا النوع "${selectedProductName}" في ذمته.`);
+        return;
       }
 
       if (Number(quantity) > currentBalance) {
@@ -114,7 +114,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
     storageService.addCylinderTransaction(tx);
     setTransactions(storageService.getCylinderTransactions());
     onUpdate(); // Updates global customer list
-    
+
     // Reset form partially
     setQuantity('');
     setNote('');
@@ -131,9 +131,9 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   }).sort((a, b) => a.name.localeCompare(b.name));
 
   const totalCylindersOut = customers.reduce((sum, c) => {
-      if (!c.cylinderBalance) return sum;
-      const custTotal = Object.values(c.cylinderBalance).reduce((s: number, v: number) => s + v, 0);
-      return sum + custTotal;
+    if (!c.cylinderBalance) return sum;
+    const custTotal = Object.values(c.cylinderBalance).reduce((s: number, v: number) => s + v, 0);
+    return sum + custTotal;
   }, 0);
 
   return (
@@ -146,26 +146,26 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
+
         {/* Action Form */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 sticky top-4 overflow-hidden">
             <div className="p-4 border-b border-gray-100 bg-gray-50">
-               <h3 className="font-bold text-lg text-gray-800">تسجيل حركة جديدة</h3>
+              <h3 className="font-bold text-lg text-gray-800">تسجيل حركة جديدة</h3>
             </div>
 
             <div className="p-6 space-y-4">
-              
+
               {/* Transaction Type Toggle */}
               <div className="flex bg-gray-100 p-1 rounded-lg">
-                <button 
+                <button
                   onClick={() => { setType('out'); setError(''); setQuantity(''); }}
                   className={`flex-1 py-2 rounded-md font-bold text-sm flex items-center justify-center gap-2 transition ${type === 'out' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
                 >
                   <ArrowUpRight size={16} />
                   خروج (له)
                 </button>
-                <button 
+                <button
                   onClick={() => { setType('in'); setError(''); setQuantity(''); }}
                   className={`flex-1 py-2 rounded-md font-bold text-sm flex items-center justify-center gap-2 transition ${type === 'in' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500'}`}
                 >
@@ -176,7 +176,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">الزبون</label>
-                <select 
+                <select
                   className="w-full p-3 border rounded-lg bg-gray-50 focus:bg-white"
                   value={selectedCustomerId}
                   onChange={e => { setSelectedCustomerId(e.target.value); }}
@@ -190,7 +190,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">نوع الاسطوانة</label>
-                <select 
+                <select
                   className="w-full p-3 border rounded-lg bg-gray-50 focus:bg-white"
                   value={selectedProductName}
                   onChange={e => { setSelectedProductName(e.target.value); }}
@@ -205,13 +205,13 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                 <div className="flex justify-between items-center mb-1">
                   <label className="block text-sm font-medium text-gray-700">العدد</label>
                   {selectedCustomerId && (
-                     <span className={`text-xs font-bold ${currentHolding > 0 ? 'text-primary-600' : 'text-gray-400'}`}>
-                       في ذمة الزبون حالياً: {currentHolding}
-                     </span>
+                    <span className={`text-xs font-bold ${currentHolding > 0 ? 'text-primary-600' : 'text-gray-400'}`}>
+                      في ذمة الزبون حالياً: {currentHolding}
+                    </span>
                   )}
                 </div>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="1"
                   max={type === 'in' ? currentHolding : undefined}
                   className={`w-full p-3 border rounded-lg font-bold text-xl ${error ? 'border-red-500 bg-red-50' : ''}`}
@@ -229,8 +229,8 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   className="w-full p-3 border rounded-lg"
                   placeholder="ملاحظات إضافية..."
                   value={note}
@@ -251,17 +251,17 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                 </div>
               )}
 
-              <button 
+              <button
                 onClick={handleSaveTransaction}
                 disabled={!selectedCustomerId || !quantity || !!error || (type === 'in' && currentHolding === 0)}
                 className={`w-full py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2 transition
                   ${(!selectedCustomerId || !quantity || !!error || (type === 'in' && currentHolding === 0))
-                    ? 'bg-gray-300 cursor-not-allowed' 
-                    : type === 'out' 
-                      ? 'bg-red-600 hover:bg-red-700' 
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : type === 'out'
+                      ? 'bg-red-600 hover:bg-red-700'
                       : 'bg-green-600 hover:bg-green-700'}`}
               >
-                 {type === 'out' ? 'تسجيل إعارة للزبون' : 'تسجيل إرجاع من الزبون'}
+                {type === 'out' ? 'تسجيل إعارة للزبون' : 'تسجيل إرجاع من الزبون'}
               </button>
             </div>
           </div>
@@ -269,34 +269,34 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
         {/* List View */}
         <div className="lg:col-span-2 space-y-6">
-          
-           {/* Summary Card */}
+
+          {/* Summary Card */}
           <div className="bg-orange-50 border border-orange-100 p-6 rounded-xl flex justify-between items-center">
-             <div>
-                <h3 className="text-orange-800 font-bold text-lg mb-1">إجمالي الاسطوانات في السوق</h3>
-                <p className="text-orange-600 text-sm">مجموع الاسطوانات الموجودة عند الزبائن</p>
-             </div>
-             <div className="text-4xl font-black text-orange-600 flex items-center gap-3">
-               {totalCylindersOut}
-               <Cylinder size={32} />
-             </div>
+            <div>
+              <h3 className="text-orange-800 font-bold text-lg mb-1">إجمالي الاسطوانات في السوق</h3>
+              <p className="text-orange-600 text-sm">مجموع الاسطوانات الموجودة عند الزبائن</p>
+            </div>
+            <div className="text-4xl font-black text-orange-600 flex items-center gap-3">
+              {totalCylindersOut}
+              <Cylinder size={32} />
+            </div>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col min-h-[500px]">
             <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
-               <h3 className="font-bold text-gray-800">أرصدة الزبائن (العيني)</h3>
-               <div className="relative flex-1 w-full md:max-w-xs">
-                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                 <input 
-                   type="text" 
-                   className="w-full pr-10 pl-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-primary-500"
-                   placeholder="بحث عن زبون..."
-                   value={searchTerm}
-                   onChange={e => setSearchTerm(e.target.value)}
-                 />
-               </div>
+              <h3 className="font-bold text-gray-800">أرصدة الزبائن (العيني)</h3>
+              <div className="relative flex-1 w-full md:max-w-xs">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  className="w-full pr-10 pl-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-primary-500"
+                  placeholder="بحث عن زبون..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
+              </div>
             </div>
-            
+
             <div className="overflow-y-auto flex-1">
               <table className="w-full text-right">
                 <thead className="bg-gray-50 text-gray-600 text-sm sticky top-0 z-10">
@@ -312,11 +312,11 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                     <tr><td colSpan={4} className="p-8 text-center text-gray-400">لا توجد مداينات مسجلة.</td></tr>
                   ) : (
                     filteredCustomers.map(c => {
-                       const balances: Record<string, number> = c.cylinderBalance || {};
-                       const hasDebt = Object.values(balances).some((v) => v !== 0);
-                       const total = Object.values(balances).reduce((a, b) => a + b, 0);
+                      const balances: Record<string, number> = c.cylinderBalance || {};
+                      const hasDebt = Object.values(balances).some((v) => v !== 0);
+                      const total = Object.values(balances).reduce((a, b) => a + b, 0);
 
-                       return (
+                      return (
                         <tr key={c.id} className="hover:bg-gray-50 transition">
                           <td className="p-4 font-bold text-gray-800">
                             {c.name}
@@ -340,16 +340,68 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                             {total}
                           </td>
                           <td className="p-4">
-                            <button 
-                              onClick={() => { setSelectedCustomerId(c.id); setType('in'); setError(''); window.scrollTo({top:0, behavior:'smooth'}); }}
+                            <button
+                              onClick={() => { setSelectedCustomerId(c.id); setType('in'); setError(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
                               className="px-3 py-1 bg-gray-100 hover:bg-green-100 text-gray-600 hover:text-green-700 rounded-lg text-sm font-bold transition"
                             >
                               إرجاع
                             </button>
                           </td>
                         </tr>
-                       );
+                      );
                     })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Transaction History */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 bg-gray-50">
+              <h3 className="font-bold text-gray-800">سجل الحركات (التواريخ)</h3>
+            </div>
+            <div className="overflow-y-auto max-h-[400px]">
+              <table className="w-full text-right">
+                <thead className="bg-gray-50 text-gray-600 text-sm sticky top-0 z-10">
+                  <tr>
+                    <th className="p-3">التاريخ</th>
+                    <th className="p-3">الزبون</th>
+                    <th className="p-3">النوع</th>
+                    <th className="p-3">العدد</th>
+                    <th className="p-3">الحركة</th>
+                    <th className="p-3">ملاحظات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {transactions.length === 0 ? (
+                    <tr><td colSpan={6} className="p-8 text-center text-gray-400">لا توجد حركات مسجلة.</td></tr>
+                  ) : (
+                    transactions
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .slice(0, 50)
+                      .map(tx => (
+                        <tr key={tx.id} className="hover:bg-gray-50 transition">
+                          <td className="p-3 text-sm text-gray-600">
+                            {new Date(tx.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                            <div className="text-xs text-gray-400">
+                              {new Date(tx.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </td>
+                          <td className="p-3 font-bold text-gray-800">{tx.customerName}</td>
+                          <td className="p-3 text-sm">{tx.productName}</td>
+                          <td className="p-3 font-black text-lg">{tx.quantity}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-1 rounded-lg text-xs font-bold ${tx.type === 'out'
+                                ? 'bg-red-50 text-red-600'
+                                : 'bg-green-50 text-green-600'
+                              }`}>
+                              {tx.type === 'out' ? 'إعارة' : 'إرجاع'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-sm text-gray-500">{tx.note || '-'}</td>
+                        </tr>
+                      ))
                   )}
                 </tbody>
               </table>

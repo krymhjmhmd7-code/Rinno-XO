@@ -74,15 +74,24 @@ export interface CylinderTransaction {
 export interface AppSettings {
   adminPassword?: string;
   allowedEmails?: string[];
+  // adminEmail will be the first user to log in if list is empty
   adminEmail?: string;
-  lastAutoExportDate?: string;
-  spreadsheetId?: string;
-  backupEmail?: string;
+
+  // Backup Settings
+  backupEmail?: string; // Legacy/Optional
+  backupWhatsapp?: string; // Preferred WhatsApp number
+  lastBackupDate?: string; // ISO Date String
   autoBackupEnabled?: boolean;
+
+  // Storage Settings
+  storageLimitMB?: number; // Configurable Plan Limit (Default 9000MB)
+
+  // Legacy Google Sheets
+  spreadsheetId?: string;
   needsSync?: boolean;
 }
 
-export type ViewState = 'dashboard' | 'customers' | 'inventory' | 'sales' | 'debts' | 'cylinder_loans' | 'reports' | 'settings';
+export type ViewState = 'dashboard' | 'customers' | 'inventory' | 'sales' | 'debts' | 'cylinder_loans' | 'reports' | 'settings' | 'calculator';
 
 // Add UserProfile interface to fix the error in components/Login.tsx
 export interface UserProfile {

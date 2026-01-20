@@ -98,18 +98,26 @@ export const initializeDatabase = async (): Promise<boolean> => {
 
         // Create CylinderTransactions table
         await tursoClient.execute(`
-      CREATE TABLE IF NOT EXISTS cylinder_transactions (
-        id TEXT PRIMARY KEY,
-        customer_id TEXT,
-        customer_name TEXT,
-        product_name TEXT,
-        quantity INTEGER,
-        type TEXT,
-        date TEXT,
-        note TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+          CREATE TABLE IF NOT EXISTS cylinder_transactions (
+            id TEXT PRIMARY KEY,
+            customer_id TEXT,
+            customer_name TEXT,
+            product_name TEXT,
+            quantity REAL,
+            type TEXT,
+            date TEXT,
+            note TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        // Create Metadata table for System Reset Signal
+        await tursoClient.execute(`
+          CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+          )
+        `);
 
         console.log('Database tables initialized successfully');
         return true;
@@ -237,6 +245,26 @@ export const dataService = {
         }
     },
 
+    async saveAllCustomers(customers: any[]) {
+        if (!tursoClient) return false;
+        try {
+            const tx = await tursoClient.transaction('write');
+            await tx.execute('DELETE FROM customers');
+            for (const customer of customers) {
+                await tx.execute({
+                    sql: `INSERT INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {})]
+                });
+            }
+            await tx.commit();
+            return true;
+        } catch (e) {
+            console.error('Failed to save all customers', e);
+            return false;
+        }
+    },
+
     // Products
     async getProducts() {
         if (!tursoClient) return [];
@@ -262,6 +290,24 @@ export const dataService = {
                 sql: `INSERT OR REPLACE INTO products (id, name, size, stock, min_stock, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
                 args: [product.id, product.name, product.size, product.stock, product.minStock, product.isActive ? 1 : 0]
             });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async saveAllProducts(products: any[]) {
+        if (!tursoClient) return false;
+        try {
+            const tx = await tursoClient.transaction('write');
+            await tx.execute('DELETE FROM products');
+            for (const product of products) {
+                await tx.execute({
+                    sql: `INSERT INTO products (id, name, size, stock, min_stock, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
+                    args: [product.id, product.name, product.size, product.stock, product.minStock, product.isActive ? 1 : 0]
+                });
+            }
+            await tx.commit();
             return true;
         } catch {
             return false;
@@ -366,6 +412,66 @@ export const dataService = {
             return true;
         } catch {
             return false;
+        }
+    },
+
+    // Factory Reset
+    async clearDatabase() {
+        if (!tursoClient) return false;
+        try {
+            const tx = await tursoClient.transaction('write');
+            await tx.execute('DELETE FROM customers');
+            await tx.execute('DELETE FROM products');
+            await tx.execute('DELETE FROM invoices');
+            await tx.execute('DELETE FROM repayments');
+            await tx.execute('DELETE FROM cylinder_transactions');
+            await tx.execute('DELETE FROM users');
+
+            // Set Reset Timestamp
+            const timestamp = new Date().toISOString();
+            await tx.execute({
+                sql: `INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_reset_timestamp', ?)`,
+                args: [timestamp]
+            });
+
+            await tx.commit();
+            return true;
+        } catch (e) {
+            console.error('Failed to clear database', e);
+            return false;
+        }
+    },
+
+    async getResetTimestamp() {
+        if (!tursoClient) return null;
+        try {
+            const result = await tursoClient.execute(`SELECT value FROM metadata WHERE key = 'last_reset_timestamp'`);
+            return result.rows.length > 0 ? result.rows[0].value as string : null;
+        } catch {
+            return null;
+        }
+    },
+
+    // Get DB Usage Stats
+    async getDatabaseUsage() {
+        if (!tursoClient) return { sizeBytes: 0, rows: 0 };
+        try {
+            // Get Size (Pages * PageSize)
+            const countResult = await tursoClient.execute('PRAGMA page_count');
+            const sizeResult = await tursoClient.execute('PRAGMA page_size');
+
+            const pageCount = Number(countResult.rows[0][0]);
+            const pageSize = Number(sizeResult.rows[0][0]);
+            const totalBytes = pageCount * pageSize;
+
+            // Get Approximate Row Count (Customers as proxy or sum of all)
+            const rowsResult = await tursoClient.execute('SELECT count(*) as c FROM customers');
+            const totalRows = Number(rowsResult.rows[0].c);
+
+            return { sizeBytes: totalBytes, rows: totalRows };
+        } catch (e) {
+            console.error('Failed to get usage stats', e);
+            return { sizeBytes: 0, rows: 0 };
         }
     }
 };

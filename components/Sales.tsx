@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Customer, CartItem, Invoice } from '../types';
-import { ShoppingCart, Trash2, CheckCircle, MessageCircle, Search, ChevronDown, Banknote, ScrollText, ArrowLeft, ArrowRight, LayoutGrid, CreditCard } from 'lucide-react';
+import { ShoppingCart, Trash2, CheckCircle, MessageCircle, Search, ChevronDown, Banknote, ScrollText, ArrowLeft, ArrowRight, LayoutGrid, CreditCard, Calculator, X } from 'lucide-react';
 
 interface SalesProps {
   products: Product[];
@@ -18,22 +18,29 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  
+
   // Customer Search State
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  
+
   // Payment State
   const [manualTotal, setManualTotal] = useState<number>(0); // Manual Total Amount
   const [cashAmount, setCashAmount] = useState<number>(0);
   const [chequeAmount, setChequeAmount] = useState<number>(0);
   const [chequeNumber, setChequeNumber] = useState<string>('');
-  
+
   // UI State
   const [success, setSuccess] = useState(false);
-  const [sendWhatsapp, setSendWhatsapp] = useState(true); 
+  const [sendWhatsapp, setSendWhatsapp] = useState(true);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Mini Calculator State
+  const [showMiniCalc, setShowMiniCalc] = useState(false);
+  const [calcDisplay, setCalcDisplay] = useState('0');
+  const [calcPrevValue, setCalcPrevValue] = useState<string | null>(null);
+  const [calcOperation, setCalcOperation] = useState<string | null>(null);
+  const [calcWaitingForOperand, setCalcWaitingForOperand] = useState(false);
 
   // Auto-select customer if provided
   useEffect(() => {
@@ -45,14 +52,14 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
     }
   }, [initialCustomerId, customers]);
 
-  const selectedCustomer = useMemo(() => 
-    customers.find(c => c.id === selectedCustomerId), 
-  [customers, selectedCustomerId]);
+  const selectedCustomer = useMemo(() =>
+    customers.find(c => c.id === selectedCustomerId),
+    [customers, selectedCustomerId]);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearchTerm) return customers;
-    return customers.filter(c => 
-      c.name.includes(customerSearchTerm) || 
+    return customers.filter(c =>
+      c.name.includes(customerSearchTerm) ||
       c.phone.includes(customerSearchTerm) ||
       c.serialNumber.toString().includes(customerSearchTerm)
     );
@@ -76,9 +83,9 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id);
       if (existing) {
-        return prev.map(item => 
-          item.productId === product.id 
-            ? { ...item, quantity: item.quantity + 1 } 
+        return prev.map(item =>
+          item.productId === product.id
+            ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
@@ -105,7 +112,7 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
   };
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-  
+
   // Calculate Debt/Credit automatically based on Manual Total
   const remainingDebt = manualTotal - cashAmount - chequeAmount;
 
@@ -127,15 +134,101 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
     return `${Math.abs(bal)} (له)`;
   };
 
+  // Mini Calculator Functions
+  const calcInputDigit = (digit: string) => {
+    if (calcWaitingForOperand) {
+      setCalcDisplay(digit);
+      setCalcWaitingForOperand(false);
+    } else {
+      setCalcDisplay(calcDisplay === '0' ? digit : calcDisplay + digit);
+    }
+  };
+
+  const calcInputDecimal = () => {
+    if (calcWaitingForOperand) {
+      setCalcDisplay('0.');
+      setCalcWaitingForOperand(false);
+    } else if (!calcDisplay.includes('.')) {
+      setCalcDisplay(calcDisplay + '.');
+    }
+  };
+
+  const calcClear = () => {
+    setCalcDisplay('0');
+    setCalcPrevValue(null);
+    setCalcOperation(null);
+    setCalcWaitingForOperand(false);
+  };
+
+  const calcPerformOperation = (nextOperation: string) => {
+    const inputValue = parseFloat(calcDisplay);
+
+    if (calcPrevValue === null) {
+      setCalcPrevValue(calcDisplay);
+    } else if (calcOperation) {
+      const currentValue = parseFloat(calcPrevValue);
+      let result: number;
+
+      switch (calcOperation) {
+        case '+': result = currentValue + inputValue; break;
+        case '-': result = currentValue - inputValue; break;
+        case '×': result = currentValue * inputValue; break;
+        case '÷': result = inputValue !== 0 ? currentValue / inputValue : 0; break;
+        default: result = inputValue;
+      }
+
+      const resultString = String(parseFloat(result.toFixed(10)));
+      setCalcDisplay(resultString);
+      setCalcPrevValue(resultString);
+    }
+
+    setCalcWaitingForOperand(true);
+    setCalcOperation(nextOperation);
+  };
+
+  const calcCalculate = () => {
+    if (!calcOperation || calcPrevValue === null) return;
+
+    const inputValue = parseFloat(calcDisplay);
+    const currentValue = parseFloat(calcPrevValue);
+    let result: number;
+
+    switch (calcOperation) {
+      case '+': result = currentValue + inputValue; break;
+      case '-': result = currentValue - inputValue; break;
+      case '×': result = currentValue * inputValue; break;
+      case '÷': result = inputValue !== 0 ? currentValue / inputValue : 0; break;
+      default: result = inputValue;
+    }
+
+    const resultString = String(parseFloat(result.toFixed(10)));
+    setCalcDisplay(resultString);
+    setCalcPrevValue(null);
+    setCalcOperation(null);
+    setCalcWaitingForOperand(true);
+  };
+
+  const handleCalcOK = () => {
+    const value = parseFloat(calcDisplay) || 0;
+    setManualTotal(value);
+    setShowMiniCalc(false);
+    calcClear();
+  };
+
+  const openMiniCalc = () => {
+    calcClear();
+    setShowMiniCalc(true);
+  };
+
   const sendWhatsAppDetails = (invoice: Invoice, customer: Customer) => {
     if (!customer.whatsapp) return;
 
     const itemsList = invoice.items.map(i => `- ${i.productName} (العدد: ${i.quantity})`).join('\n');
-    
+
     let paymentText = '';
     if (invoice.paymentDetails.cash > 0) paymentText += `\n- نقداً: ${invoice.paymentDetails.cash} شيكل`;
     if (invoice.paymentDetails.cheque > 0) paymentText += `\n- شيك: ${invoice.paymentDetails.cheque} شيكل (رقم: ${invoice.paymentDetails.chequeNumber || '-'})`;
-    
+
     if (invoice.paymentDetails.debt > 0) {
       paymentText += `\n- متبقي عليك: ${invoice.paymentDetails.debt} شيكل`;
     } else if (invoice.paymentDetails.debt < 0) {
@@ -153,7 +246,7 @@ ${itemsList}
 ----------------
 *الدفع:*${paymentText}
 ----------------
-التاريخ: ${new Date().toLocaleDateString('ar-EG')}
+التاريخ: ${new Date().toLocaleDateString('en-US')}
 
 دمتم بخير.
     `.trim();
@@ -161,7 +254,7 @@ ${itemsList}
     const encodedMessage = encodeURIComponent(message);
     const cleanNumber = customer.whatsapp.replace(/[^0-9+]/g, '');
     const url = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-    
+
     window.open(url, '_blank');
   };
 
@@ -188,7 +281,7 @@ ${itemsList}
     };
 
     onCompleteSale(invoice);
-    
+
     if (selectedCustomer && sendWhatsapp) {
       sendWhatsAppDetails(invoice, selectedCustomer);
     }
@@ -202,7 +295,7 @@ ${itemsList}
     setCashAmount(0);
     setChequeAmount(0);
     setChequeNumber('');
-    setMobileTab('products'); 
+    setMobileTab('products');
     setTimeout(() => setSuccess(false), 3000);
   };
 
@@ -210,17 +303,17 @@ ${itemsList}
 
   return (
     <div className="flex flex-col h-[calc(100dvh-100px)] lg:h-[calc(100dvh-140px)] relative">
-      
+
       {/* Mobile Tab Switcher */}
       <div className="lg:hidden flex bg-white border border-gray-200 rounded-lg mb-3 overflow-hidden shrink-0">
-        <button 
+        <button
           onClick={() => setMobileTab('products')}
           className={`flex-1 py-3 flex justify-center items-center gap-2 text-sm font-bold transition-colors ${mobileTab === 'products' ? 'bg-primary-50 text-primary-600' : 'text-gray-600'}`}
         >
           <LayoutGrid size={18} />
           المنتجات
         </button>
-        <button 
+        <button
           onClick={() => setMobileTab('cart')}
           className={`flex-1 py-3 flex justify-center items-center gap-2 text-sm font-bold transition-colors ${mobileTab === 'cart' ? 'bg-primary-50 text-primary-600' : 'text-gray-600'}`}
         >
@@ -230,7 +323,7 @@ ${itemsList}
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0 overflow-hidden">
-        
+
         {/* Products Section */}
         <div className={`
           lg:col-span-7 flex flex-col h-full overflow-hidden
@@ -247,16 +340,16 @@ ${itemsList}
                   key={product.id}
                   onClick={() => addToCart(product)}
                   className={`relative p-4 rounded-xl border text-right transition flex flex-col justify-between min-h-[120px]
-                    ${isInCart 
-                      ? 'bg-primary-50 border-primary-500 ring-2 ring-primary-200' 
+                    ${isInCart
+                      ? 'bg-primary-50 border-primary-500 ring-2 ring-primary-200'
                       : 'bg-white border-gray-200 hover:border-primary-500 shadow-sm'}
                     ${selectedProductId === product.id ? 'selected-product-animate' : ''}
                     active:scale-95 touch-manipulation`}
                 >
                   {isInCart && (
-                     <div className="absolute top-2 left-2 bg-primary-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-sm">
-                       {qtyInCart}
-                     </div>
+                    <div className="absolute top-2 left-2 bg-primary-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-sm">
+                      {qtyInCart}
+                    </div>
                   )}
                   <div>
                     <div className="font-bold text-lg text-gray-800 line-clamp-1 mb-1">{product.name}</div>
@@ -271,10 +364,10 @@ ${itemsList}
           {/* Floating Mobile Bar */}
           <div className="lg:hidden absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-10 flex items-center justify-between">
             <div className="flex flex-col">
-               <span className="text-xs text-gray-500">العدد الحالي</span>
-               <span className="font-black text-xl text-primary-600">{totalItems} قطعة</span>
+              <span className="text-xs text-gray-500">العدد الحالي</span>
+              <span className="font-black text-xl text-primary-600">{totalItems} قطعة</span>
             </div>
-            <button 
+            <button
               onClick={() => setMobileTab('cart')}
               className="bg-primary-600 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-primary-200 active:scale-95 transition"
             >
@@ -291,10 +384,10 @@ ${itemsList}
         `}>
           {/* Mobile Cart Header */}
           <div className="lg:hidden p-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50">
-             <button onClick={() => setMobileTab('products')} className="p-2 -mr-2 text-gray-600">
-               <ArrowRight size={20} />
-             </button>
-             <h2 className="text-lg font-bold text-gray-800">سلة المشتريات</h2>
+            <button onClick={() => setMobileTab('products')} className="p-2 -mr-2 text-gray-600">
+              <ArrowRight size={20} />
+            </button>
+            <h2 className="text-lg font-bold text-gray-800">سلة المشتريات</h2>
           </div>
 
           <div className="hidden lg:block p-4 border-b border-gray-100 shrink-0">
@@ -303,12 +396,12 @@ ${itemsList}
               تفاصيل الطلبية
             </h2>
           </div>
-          
+
           {/* Customer Search Section */}
           <div className="p-4 bg-primary-50 shrink-0 relative" ref={searchContainerRef}>
             <label className="block text-sm font-bold text-gray-700 mb-2">الزبون</label>
             <div className="relative">
-              <input 
+              <input
                 type="text"
                 className="w-full p-3 pl-10 border border-primary-200 rounded-lg bg-white focus:ring-2 focus:ring-primary-500 transition text-lg font-medium"
                 placeholder="بحث (اسم، رقم، تسلسل)..."
@@ -317,7 +410,7 @@ ${itemsList}
                   setCustomerSearchTerm(e.target.value);
                   setShowCustomerDropdown(true);
                   if (e.target.value === '') {
-                     setSelectedCustomerId('');
+                    setSelectedCustomerId('');
                   }
                 }}
                 onFocus={() => setShowCustomerDropdown(true)}
@@ -345,9 +438,9 @@ ${itemsList}
                         <div className="text-xs text-gray-500">{c.city} - {c.phone}</div>
                       </div>
                       {c.balance !== 0 && (
-                         <span className={`text-sm font-bold px-2 py-1 rounded-full ${c.balance > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                           {formatBalance(c.balance)}
-                         </span>
+                        <span className={`text-sm font-bold px-2 py-1 rounded-full ${c.balance > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                          {formatBalance(c.balance)}
+                        </span>
                       )}
                     </button>
                   ))
@@ -356,18 +449,18 @@ ${itemsList}
             )}
 
             {selectedCustomer && !showCustomerDropdown && (
-               <div className="mt-3 bg-white p-3 rounded-lg border border-primary-100 shadow-sm flex justify-between items-center">
-                 <div>
-                   <div className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                      <span className="bg-gray-100 px-2 rounded text-xs">#{selectedCustomer.serialNumber}</span>
-                      {selectedCustomer.name}
-                   </div>
-                   <div className="text-xs text-gray-500">{selectedCustomer.city}</div>
-                 </div>
-                 <div className={`font-black text-lg ${selectedCustomer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                   {formatBalance(selectedCustomer.balance)}
-                 </div>
-               </div>
+              <div className="mt-3 bg-white p-3 rounded-lg border border-primary-100 shadow-sm flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <span className="bg-gray-100 px-2 rounded text-xs">#{selectedCustomer.serialNumber}</span>
+                    {selectedCustomer.name}
+                  </div>
+                  <div className="text-xs text-gray-500">{selectedCustomer.city}</div>
+                </div>
+                <div className={`font-black text-lg ${selectedCustomer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {formatBalance(selectedCustomer.balance)}
+                </div>
+              </div>
             )}
           </div>
 
@@ -402,30 +495,93 @@ ${itemsList}
 
           {/* Payment Footer */}
           <div className="p-4 border-t border-gray-100 bg-gray-50 shrink-0 space-y-3 pb-safe">
-            
+
             {/* Manual Total Input */}
             <div className="flex flex-col gap-1 bg-white p-3 rounded-xl border border-gray-200">
-               <span className="text-sm font-bold text-gray-500">المجموع الكلي (المتفق عليه)</span>
-               <div className="flex items-center gap-2">
-                 <input 
-                   type="text" 
-                   className="flex-1 text-3xl font-black text-primary-600 outline-none placeholder-gray-300"
-                   placeholder="0.00"
-                   value={manualTotal || ''}
-                   onChange={e => handleNumericInput(e.target.value, setManualTotal)}
-                 />
-                 <span className="text-lg font-bold text-gray-400">شيكل</span>
-               </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-gray-500">المجموع الكلي (المتفق عليه)</span>
+                <button
+                  onClick={openMiniCalc}
+                  className="p-2 bg-primary-100 hover:bg-primary-200 text-primary-600 rounded-lg transition active:scale-95"
+                  title="آلة حاسبة"
+                >
+                  <Calculator size={18} />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  className="flex-1 text-3xl font-black text-primary-600 outline-none placeholder-gray-300"
+                  placeholder="0.00"
+                  value={manualTotal || ''}
+                  onChange={e => handleNumericInput(e.target.value, setManualTotal)}
+                />
+                <span className="text-lg font-bold text-gray-400">شيكل</span>
+              </div>
             </div>
-            
+
+            {/* Mini Calculator Popup */}
+            {showMiniCalc && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowMiniCalc(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={e => e.stopPropagation()}>
+                  {/* Calculator Header */}
+                  <div className="bg-gradient-to-br from-primary-500 to-blue-600 p-4 text-white">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm opacity-80">الآلة الحاسبة</span>
+                      <button onClick={() => setShowMiniCalc(false)} className="p-1 hover:bg-white/20 rounded">
+                        <X size={18} />
+                      </button>
+                    </div>
+                    <div className="text-left h-6 text-sm opacity-60">
+                      {calcPrevValue !== null && calcOperation && (
+                        <span>{calcPrevValue} {calcOperation}</span>
+                      )}
+                    </div>
+                    <div className="text-left text-4xl font-black">{calcDisplay}</div>
+                  </div>
+
+                  {/* Calculator Buttons */}
+                  <div className="p-3 bg-slate-50 grid grid-cols-4 gap-2">
+                    {/* Row 1 - Operations on right */}
+                    <button onClick={() => calcPerformOperation('-')} className="h-14 rounded-xl bg-orange-100 hover:bg-orange-200 font-bold text-2xl text-orange-700">−</button>
+                    <button onClick={calcClear} className="h-14 rounded-xl bg-gray-200 hover:bg-gray-300 font-bold text-xl text-gray-600">C</button>
+                    <button onClick={() => calcPerformOperation('÷')} className="h-14 rounded-xl bg-primary-100 hover:bg-primary-200 font-bold text-xl text-primary-700">÷</button>
+                    <button onClick={() => calcPerformOperation('×')} className="h-14 rounded-xl bg-primary-100 hover:bg-primary-200 font-bold text-xl text-primary-700">×</button>
+
+                    {/* Row 2 */}
+                    <button onClick={() => calcPerformOperation('+')} className="h-14 rounded-xl bg-orange-100 hover:bg-orange-200 font-bold text-2xl text-orange-700">+</button>
+                    <button onClick={() => calcInputDigit('7')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">7</button>
+                    <button onClick={() => calcInputDigit('8')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">8</button>
+                    <button onClick={() => calcInputDigit('9')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">9</button>
+
+                    {/* Row 3 */}
+                    <button onClick={() => calcInputDigit('.')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">.</button>
+                    <button onClick={() => calcInputDigit('4')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">4</button>
+                    <button onClick={() => calcInputDigit('5')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">5</button>
+                    <button onClick={() => calcInputDigit('6')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">6</button>
+
+                    {/* Row 4 */}
+                    <button onClick={() => calcInputDigit('0')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">0</button>
+                    <button onClick={() => calcInputDigit('1')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">1</button>
+                    <button onClick={() => calcInputDigit('2')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">2</button>
+                    <button onClick={() => calcInputDigit('3')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">3</button>
+
+                    {/* Row 5 - = and OK */}
+                    <button onClick={calcCalculate} className="h-14 rounded-xl bg-primary-500 hover:bg-primary-600 font-bold text-2xl text-white col-span-2">=</button>
+                    <button onClick={handleCalcOK} className="h-14 rounded-xl bg-green-500 hover:bg-green-600 font-bold text-xl text-white col-span-2">OK</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white p-3 rounded-lg border border-gray-200 space-y-3">
               <h4 className="text-xs font-bold text-gray-500 mb-2">طريقة الدفع</h4>
-              
+
               {/* Cash Input */}
               <div className="flex items-center gap-2">
-                <div className="bg-green-100 p-2 rounded text-green-600"><Banknote size={20}/></div>
-                <input 
-                  type="text" 
+                <div className="bg-green-100 p-2 rounded text-green-600"><Banknote size={20} /></div>
+                <input
+                  type="text"
                   className="flex-1 p-2 text-xl font-bold border rounded-lg bg-gray-50 focus:bg-white transition outline-none focus:ring-1 ring-primary-300"
                   placeholder="مدفوع نقداً"
                   value={cashAmount || ''}
@@ -436,9 +592,9 @@ ${itemsList}
               {/* Cheque Input */}
               <div className="flex gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                  <div className="bg-purple-100 p-2 rounded text-purple-600"><ScrollText size={20}/></div>
-                  <input 
-                    type="text" 
+                  <div className="bg-purple-100 p-2 rounded text-purple-600"><ScrollText size={20} /></div>
+                  <input
+                    type="text"
                     className="w-full p-2 text-lg font-bold border rounded-lg bg-gray-50 focus:bg-white transition outline-none focus:ring-1 ring-primary-300"
                     placeholder="مدفوع شيك"
                     value={chequeAmount || ''}
@@ -446,8 +602,8 @@ ${itemsList}
                   />
                 </div>
                 {chequeAmount > 0 && (
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     className="w-24 p-2 text-lg border rounded-lg bg-gray-50 focus:bg-white transition outline-none"
                     placeholder="رقم الشيك"
                     value={chequeNumber}
@@ -459,7 +615,7 @@ ${itemsList}
               {/* Debt/Credit Calculation */}
               <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                 <span className="flex items-center gap-2 text-gray-600 text-sm">
-                  <CreditCard size={16} /> 
+                  <CreditCard size={16} />
                   {remainingDebt > 0 ? 'المتبقي (عليه):' : remainingDebt < 0 ? 'المتبقي (له):' : 'المتبقي:'}
                 </span>
                 <span className={`font-black text-2xl ${remainingDebt > 0 ? 'text-red-600' : remainingDebt < 0 ? 'text-green-600' : 'text-gray-600'}`}>
@@ -467,7 +623,7 @@ ${itemsList}
                 </span>
               </div>
             </div>
-            
+
             {/* Inline Success Message Banner */}
             {success && (
               <div className="bg-green-100 text-green-800 p-3 rounded-lg text-center font-bold animate-pulse border border-green-200">
@@ -477,24 +633,24 @@ ${itemsList}
 
             <div className="flex items-center justify-between gap-4">
               <label className="flex items-center gap-2 cursor-pointer bg-gray-100 px-3 py-2 rounded-lg hover:bg-gray-200 transition">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={sendWhatsapp}
                   onChange={(e) => setSendWhatsapp(e.target.checked)}
                   className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
                 />
                 <span className="text-sm font-bold text-gray-700 flex items-center gap-1">
-                   <MessageCircle size={16} className="text-green-600" />
-                   إرسال واتساب
+                  <MessageCircle size={16} className="text-green-600" />
+                  إرسال واتساب
                 </span>
               </label>
 
-              <button 
+              <button
                 onClick={handleCheckout}
                 disabled={cart.length === 0 || !selectedCustomerId}
                 className={`flex-1 py-4 rounded-xl font-bold text-lg text-white transition flex items-center justify-center gap-2
-                  ${cart.length > 0 && selectedCustomerId 
-                    ? 'bg-primary-600 hover:bg-primary-700 shadow-lg shadow-primary-200' 
+                  ${cart.length > 0 && selectedCustomerId
+                    ? 'bg-primary-600 hover:bg-primary-700 shadow-lg shadow-primary-200'
                     : 'bg-gray-300 cursor-not-allowed'}`}
               >
                 <span>حفظ الفاتورة</span>

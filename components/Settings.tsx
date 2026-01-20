@@ -1,8 +1,6 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Shield, Download, FileJson, FileSpreadsheet, Upload, Cloud, RefreshCw, CheckCircle, XCircle, Link, Plus, Trash2, Users } from 'lucide-react';
+import { Save, Shield, Download, FileJson, FileSpreadsheet, Upload, Cloud, RefreshCw, Plus, Trash2, Users, AlertOctagon } from 'lucide-react';
 import { storageService } from '../services/storage';
-import { sheetsService, getSyncStatus, SyncStatus } from '../services/sheetsService';
 import { AppSettings } from '../types';
 
 interface SettingsProps {
@@ -19,19 +17,14 @@ export const Settings: React.FC<SettingsProps> = ({ isAdmin = false }) => {
   // Access Control
   const [newEmail, setNewEmail] = useState('');
 
-  // Google Sheets State
-
+  // Turso Connection State
   const [sheetsMessage, setSheetsMessage] = useState('');
   const [sheetsMessageType, setSheetsMessageType] = useState<'success' | 'error' | 'info'>('info');
-  const [isTesting, setIsTesting] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ lastSync: null, isSyncing: false, error: null });
   const [backupEmailInput, setBackupEmailInput] = useState('');
 
   useEffect(() => {
     setSettings(storageService.getSettings());
     setBackupEmailInput(storageService.getSettings().backupEmail || '');
-    setSyncStatus(getSyncStatus());
   }, []);
 
   const handleSavePassword = () => {
@@ -75,47 +68,7 @@ export const Settings: React.FC<SettingsProps> = ({ isAdmin = false }) => {
   // Google Sheets Functions
 
 
-  const handleTestConnection = async () => {
-    setIsTesting(true);
-    setSheetsMessage('جاري اختبار الاتصال...');
-    setSheetsMessageType('info');
 
-    const result = await sheetsService.testConnection();
-
-    setIsTesting(false);
-    setSheetsMessage(result.message);
-    setSheetsMessageType(result.success ? 'success' : 'error');
-  };
-
-  const handleSync = async () => {
-    setIsSyncing(true);
-    setSheetsMessage('جاري المزامنة...');
-    setSheetsMessageType('info');
-
-    // جمع البيانات المحلية
-    const localData = {
-      customers: storageService.getCustomers(),
-      products: storageService.getProducts(),
-      invoices: storageService.getInvoices(),
-      repayments: storageService.getRepayments(),
-      cylinderTransactions: storageService.getCylinderTransactions(),
-      customerTypes: storageService.getCustomerTypes(),
-      settings: storageService.getSettings()
-    };
-
-    const result = await sheetsService.syncAllData(localData);
-
-    setIsSyncing(false);
-    setSyncStatus(getSyncStatus());
-
-    if (result) {
-      setSheetsMessage('تمت المزامنة بنجاح!');
-      setSheetsMessageType('success');
-    } else {
-      setSheetsMessage('فشلت المزامنة. تحقق من الرابط والاتصال.');
-      setSheetsMessageType('error');
-    }
-  };
 
   const handleAddEmail = () => {
     if (!newEmail || !newEmail.includes('@')) return;
@@ -212,74 +165,288 @@ export const Settings: React.FC<SettingsProps> = ({ isAdmin = false }) => {
         </div>
       )}
 
-      {/* Google Sheets Section */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-          <Cloud className="text-blue-600" />
-          حالة الاتصال والبيانات
+      {/* Security Settings - Password */}
+      {isAdmin && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+            <Shield className="text-red-500" />
+            تأمين النظام (كلمة المرور)
+          </h3>
+          <p className="text-sm text-gray-500 mb-4">
+            تعيين كلمة مرور موحدة للدخول. لن يتمكن أي موظف من الدخول إلا بمعرفة هذه الكلمة بالإضافة للإيميل.
+          </p>
+
+          <div className="space-y-3">
+            <input
+              type="password"
+              placeholder="كلمة المرور الجديدة"
+              className="w-full p-2 border rounded-lg"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="تأكيد كلمة المرور"
+              className="w-full p-2 border rounded-lg"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+
+            {message && <div className={`text-sm ${message.includes('بنجاح') ? 'text-green-600' : 'text-red-600'}`}>{message}</div>}
+
+            <button
+              onClick={handleSavePassword}
+              className="bg-red-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-red-700 w-full"
+            >
+              <Save size={18} className="inline ml-2" />
+              حفظ كلمة المرور
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Database Usage Monitor */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
+        <h3 className="font-bold text-lg mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-blue-50 rounded-full text-blue-600">
+              <Cloud size={20} />
+            </div>
+            حالة التخزين السحابي (Cloud Storage)
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new Event('refreshStorageMonitor'))}
+            className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-blue-600 transition"
+            title="تحديث البيانات"
+          >
+            <RefreshCw size={16} />
+          </button>
         </h3>
-        <p className="text-sm text-gray-500 mb-4">
-          يتم حفظ بياناتك تلقائياً في ملف Excel خاص بك يسمى <b>"Rinno Database"</b> في Google Drive.
-        </p>
+
+        {(() => {
+          const limitMB = settings.storageLimitMB || 9000; // Default 9GB
+          const [usage, setUsage] = useState({ sizeBytes: 0, rows: 0, loading: true });
+
+          useEffect(() => {
+            const fetchUsage = async () => {
+              setUsage(prev => ({ ...prev, loading: true }));
+              try {
+                const { dataService } = await import('../services/dbService');
+                const stats = await dataService.getDatabaseUsage();
+                setUsage({ ...stats, loading: false });
+              } catch (e) { console.error(e); setUsage(prev => ({ ...prev, loading: false })); }
+            };
+            fetchUsage();
+
+            const handleRefresh = () => fetchUsage();
+            window.addEventListener('refreshStorageMonitor', handleRefresh);
+            return () => window.removeEventListener('refreshStorageMonitor', handleRefresh);
+          }, []);
+
+          const usedMB = usage.sizeBytes / (1024 * 1024);
+          const percent = Math.min((usedMB / limitMB) * 100, 100);
+          const isCritical = percent > 90;
+
+          return (
+            <div className="space-y-4">
+              <div className="flex justify-between items-end">
+                <div>
+                  <span className="text-2xl font-bold text-gray-800">{usedMB < 1 ? '< 1' : usedMB.toFixed(1)}</span>
+                  <span className="text-xs text-gray-500 mx-1">MB مستخدم</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-gray-400">من أصل {limitMB / 1000} GB</div>
+                  <div className={`text-sm font-bold ${isCritical ? 'text-red-600' : 'text-green-600'}`}>
+                    {percent.toFixed(2)}% ممتلئ
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-1000 ${isCritical ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`}
+                  style={{ width: `${percent}%` }}
+                ></div>
+              </div>
+
+              {/* Critical Warning */}
+              {isCritical && (
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm mt-2">
+                  <AlertOctagon size={18} />
+                  <strong>تحذير:</strong> لقد اقتربت من امتلاء قاعدة البيانات! يرجى التواصل مع الدعم للترقية.
+                </div>
+              )}
+
+              {/* Plan Configuration */}
+              <details className="text-xs text-gray-400 mt-2">
+                <summary className="cursor-pointer hover:text-blue-500">تعديل حد الخطة (للمتقدمين فقط)</summary>
+                <div className="mt-2 flex items-center gap-2">
+                  <span>الحد الأقصى (MB):</span>
+                  <input
+                    type="number"
+                    value={settings.storageLimitMB || 9000}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      const newSettings = { ...settings, storageLimitMB: val };
+                      setSettings(newSettings);
+                      storageService.saveSettings(newSettings);
+                    }}
+                    className="border p-1 rounded w-24 text-center"
+                  />
+                </div>
+              </details>
+
+              <div className="text-xs text-gray-400 mt-2 flex justify-between">
+                <span>عدد السجلات التقريبي: {usage.rows}</span>
+                <span> {usage.loading ? 'جاري الحساب...' : 'تم التحديث'}</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Connection Status Section - For Debugging */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+            <Cloud size={24} />
+          </div>
+          <h2 className="text-xl font-bold text-gray-800">حالة الاتصال بقاعدة البيانات (Turso)</h2>
+        </div>
 
         <div className="space-y-4">
-          {settings.spreadsheetId ? (
-            <div className="bg-green-50 border border-green-200 p-4 rounded-lg flex items-center gap-3">
-              <CheckCircle className="text-green-600" size={24} />
-              <div>
-                <p className="font-bold text-green-800">متصل بقاعدة البيانات بنجاح</p>
-                <a
-                  href={`https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-green-600 underline hover:text-green-800"
-                >
-                  فتح ملف قاعدة البيانات (Google Sheets)
-                </a>
-              </div>
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex flex-col">
+              <span className="font-bold text-gray-700">قاعدة البيانات المتصلة:</span>
+              <span className="text-xs text-gray-500 font-mono mt-1" dir="ltr">
+                {import.meta.env.VITE_TURSO_DATABASE_URL
+                  ? import.meta.env.VITE_TURSO_DATABASE_URL.replace('libsql://', '').split('.')[0] + '... (Turso)'
+                  : 'غير متصل'}
+              </span>
             </div>
-          ) : (
-            <div className="bg-orange-50 border border-orange-200 p-4 rounded-lg flex items-center gap-3">
-              <RefreshCw className="text-orange-600 animate-spin" size={24} />
-              <div>
-                <p className="font-bold text-orange-800">جاري البحث عن قاعدة البيانات...</p>
-                <p className="text-xs text-orange-600">سيتم الإنشاء تلقائياً بعد تسجيل الدخول.</p>
-              </div>
-            </div>
-          )}
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${import.meta.env.VITE_TURSO_DATABASE_URL ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {import.meta.env.VITE_TURSO_DATABASE_URL ? 'متصل ✅' : 'مفصول ❌'}
+            </span>
+          </div>
 
-          {sheetsMessage && (
-            <div className={`text-sm ${getMessageColor()} flex items-center gap-2`}>
-              {sheetsMessageType === 'success' && <CheckCircle size={16} />}
-              {sheetsMessageType === 'error' && <XCircle size={16} />}
-              {sheetsMessage}
-            </div>
-          )}
-
-          <div className="flex gap-3 flex-wrap mt-2">
+          <div className="flex gap-3">
             <button
-              onClick={handleSync}
-              disabled={isSyncing || !settings.spreadsheetId}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+              onClick={async () => {
+                setSheetsMessage('جاري فحص الاتصال...');
+                try {
+                  const { tursoClient } = await import('../services/dbService');
+                  if (!tursoClient) {
+                    setSheetsMessage('العميل غير مهيأ (راجع المتغيرات)');
+                    setSheetsMessageType('error');
+                    return;
+                  }
+                  await tursoClient.execute('SELECT 1');
+                  setSheetsMessage('الاتصال ناجح! ✅');
+                  setSheetsMessageType('success');
+                } catch (e: any) {
+                  setSheetsMessage(`فشل الاتصال: ${e.message}`);
+                  setSheetsMessageType('error');
+                }
+              }}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-bold transition flex-1 justify-center"
             >
-              {isSyncing ? <RefreshCw size={18} className="animate-spin" /> : <RefreshCw size={18} />}
-              تحديث البيانات الآن (فرض المزامنة)
-            </button>
-            <button
-              onClick={handleTestConnection}
-              className="text-gray-500 hover:text-gray-700 text-sm underline"
-            >
+              <RefreshCw size={18} />
               فحص الاتصال
+            </button>
+
+            <button
+              onClick={() => {
+                storageService.syncAllFromDb().then(res => {
+                  if (res) alert('تمت المزامنة بنجاح');
+                  else alert('فشلت المزامنة');
+                });
+              }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold transition flex-1 justify-center"
+            >
+              <Download size={18} />
+              جلب البيانات
+            </button>
+
+            <button
+              onClick={() => {
+                if (confirm('تنبيه: سيقوم هذا الخيار برفع جميع البيانات من هذا الجهاز إلى السحابة. هل أنت متأكد؟')) {
+                  storageService.syncAllToDb().then(res => {
+                    if (res) alert('تم رفع البيانات للسحابة بنجاح! ✅');
+                    else alert('حدث خطأ أثناء الرفع ❌');
+                  });
+                }
+              }}
+              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-bold transition flex-1 justify-center"
+            >
+              <Upload size={18} />
+              رفع للسحابة
+            </button>
+
+            <button
+              onClick={() => {
+                const pwd = prompt('أدخل كلمة المرور لتأكيد حذف جميع البيانات نهائياً:');
+                if (pwd === 'rinno2025') {
+                  if (confirm('تحذير أخير: سيتم حذف كل شيء بلا رجعة. هل أنت متأكد؟')) {
+                    storageService.factoryReset().then(res => {
+                      if (res) {
+                        alert('تم تصفير النظام بنجاح');
+                        window.location.reload();
+                      } else {
+                        alert('فشلت العملية');
+                      }
+                    });
+                  }
+                } else if (pwd !== null) {
+                  alert('كلمة المرور خاطئة');
+                }
+              }}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold transition flex-1 justify-center"
+            >
+              تصفير النظام
             </button>
           </div>
 
-          {syncStatus.lastSync && (
-            <p className="text-xs text-gray-500">
-              آخر تحديث: {new Date(syncStatus.lastSync).toLocaleString('ar-EG')}
-            </p>
+          <div className="text-xs text-gray-400 font-mono mt-2 p-2 bg-gray-100 rounded flex justify-between">
+            <span>Server Reset: <span id="server-ts">Loading...</span></span>
+            <span>Local Reset: {localStorage.getItem('last_reset_timestamp') || 'None'}</span>
+          </div>
+          <button
+            onClick={async () => {
+              const el = document.getElementById('server-ts');
+              if (el) el.innerText = 'Checking...';
+              try {
+                const { dataService } = await import('../services/dbService');
+                const ts = await dataService.getResetTimestamp();
+                if (el) el.innerText = ts || 'NULL';
+
+                const local = localStorage.getItem('last_reset_timestamp');
+                if (ts && ts !== local) {
+                  if (confirm(`Detected remote reset mismatch.\nServer: ${ts}\nLocal: ${local}\nWipe now?`)) {
+                    localStorage.clear();
+                    window.location.reload();
+                  }
+                } else {
+                  alert('Sync is up to date.');
+                }
+              } catch (e) {
+                if (el) el.innerText = 'Error';
+                console.error(e);
+              }
+            }}
+            className="text-xs text-blue-500 underline text-center block w-full"
+          >
+            Check Reset Signal
+          </button>
+          {sheetsMessage && (
+            <div className={`p-3 rounded-lg text-sm font-bold text-center ${getMessageColor()}`}>
+              {sheetsMessage}
+            </div>
           )}
         </div>
       </div>
+
+
 
       {/* Backup Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -292,105 +459,74 @@ export const Settings: React.FC<SettingsProps> = ({ isAdmin = false }) => {
         </p>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="autoBackup"
-              checked={settings.autoBackupEnabled || false}
-              onChange={(e) => {
-                const newSettings = { ...settings, autoBackupEnabled: e.target.checked };
-                setSettings(newSettings);
-                storageService.saveSettings(newSettings);
-              }}
-              className="w-5 h-5 text-orange-600 rounded focus:ring-orange-500"
-            />
-            <label htmlFor="autoBackup" className="font-bold text-gray-700">تفعيل النسخ الاحتياطي التلقائي (كل ساعة)</label>
-          </div>
+
 
           <div>
-            <label className="block text-sm text-gray-700 mb-1">بريد إضافي لاستلام النسخ (اختياري)</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-sm text-gray-700 font-bold">رقم واتساب للنسخ الاحتياطي</label>
+              <span className="text-xs text-gray-400 font-mono">
+                آخر نسخ: {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleDateString('en-US') : 'لم يتم بعد'}
+              </span>
+            </div>
 
             {/* Input Area */}
             <div className="flex gap-2 mb-3">
               <input
-                type="email"
-                placeholder="example@gmail.com"
-                className="flex-1 p-2 border rounded-lg text-sm"
+                type="tel"
+                placeholder="Ex: 972591234567"
+                className="flex-1 p-2 border rounded-lg text-sm text-center font-mono"
                 dir="ltr"
-                value={backupEmailInput}
-                onChange={(e) => setBackupEmailInput(e.target.value)}
-              />
-              <button
-                onClick={() => {
-                  if (!backupEmailInput || !backupEmailInput.includes('@')) return alert('يرجى كتابة إيميل صحيح');
-                  const newSettings = { ...settings, backupEmail: backupEmailInput };
+                value={settings.backupWhatsapp || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const newSettings = { ...settings, backupWhatsapp: val };
                   setSettings(newSettings);
                   storageService.saveSettings(newSettings);
-                  setBackupEmailInput(''); // Clear input
-                  alert('تم حفظ بريد النسخ الاحتياطي بنجاح');
                 }}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
-              >
-                <Plus size={18} />
-                إضافة
-              </button>
+              />
             </div>
-
-            {/* Saved Email Display */}
-            {settings.backupEmail && (
-              <div className="flex justify-between items-center bg-green-50 p-3 rounded-lg border border-green-200 mb-2">
-                <div className="flex items-center gap-3">
-                  <div className="bg-green-100 p-2 rounded-full">
-                    <CheckCircle className="text-green-600" size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">{settings.backupEmail}</p>
-                    <p className="text-xs text-green-600">تم الحفظ - سيتم إرسال النسخ لهذا البريد</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    const newSettings = { ...settings, backupEmail: undefined };
-                    setSettings(newSettings);
-                    storageService.saveSettings(newSettings);
-                  }}
-                  className="text-red-500 hover:text-red-700 p-2"
-                  title="حذف"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            )}
-
-            {!settings.backupEmail && (
-              <p className="text-xs text-gray-400 mt-1">لم يتم تحديد بريد احتياطي بعد.</p>
-            )}
           </div>
 
-          <button
-            onClick={async () => {
-              if (!settings.spreadsheetId) return alert('يجب توصيل قاعدة البيانات أولاً');
-              const token = sheetsService.getAccessToken();
-              if (!token) return alert('يجب تسجيل الدخول أولاً');
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                storageService.exportDatabaseToExcel();
+              }}
+              className="bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 flex-1 justify-center"
+            >
+              <Download size={18} />
+              تنزيل (Download)
+            </button>
 
-              setSheetsMessage('جاري عمل نسخة احتياطية...');
-              const result = await import('../services/googleApiService').then(m =>
-                m.googleApiService.createBackup(token, settings.spreadsheetId!, settings.backupEmail)
-              );
+            <button
+              onClick={async () => {
+                try {
+                  // 1. Generate File
+                  const file = storageService.exportDatabaseToExcel(true) as File;
 
-              if (result.success) {
-                alert('تم إنشاء النسخة الاحتياطية بنجاح!');
-                setSheetsMessage('');
-              } else {
-                alert(result.message);
-                setSheetsMessage('');
-              }
-            }}
-            className="bg-orange-50 text-orange-700 border border-orange-200 px-4 py-2 rounded-lg hover:bg-orange-100 flex items-center gap-2 w-fit"
-          >
-            <Shield size={18} />
-            إنشاء نسخة احتياطية الآن
-          </button>
+                  // 2. Share
+                  if (navigator.share) {
+                    await navigator.share({
+                      title: 'Rinno Backup',
+                      text: `نسخة احتياطية - ${new Date().toLocaleDateString()}`,
+                      files: [file]
+                    });
+                  } else {
+                    alert('المشاركة غير مدعومة في هذا المتصفح. سيتم التنزيل بدلاً من ذلك.');
+                    storageService.exportDatabaseToExcel();
+                  }
+                } catch (e) {
+                  console.error(e);
+                  // User cancelled share or error
+                }
+              }}
+              className="bg-green-50 text-green-700 border border-green-200 px-4 py-2 rounded-lg hover:bg-green-100 flex items-center gap-2 flex-1 justify-center"
+            >
+              <div className="w-1 h-1 bg-green-500 rounded-full animate-ping absolute top-0 right-0"></div>
+              <Cloud size={18} />
+              مشاركة (WhatsApp)
+            </button>
+          </div>
         </div>
       </div>
 
