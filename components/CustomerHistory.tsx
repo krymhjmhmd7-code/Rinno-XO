@@ -13,6 +13,8 @@ interface CustomerHistoryProps {
     onShareInvoice: (inv: Invoice, customer: Customer) => void;
     onPrintHistory: (customer: Customer, history: HistoryItem[]) => void;
     onShareHistory: (customer: Customer, history: HistoryItem[]) => void;
+    onDeleteTransaction: (type: 'invoice' | 'repayment', id: string, customerId: string) => void;
+    onUpdateTransactionDate: (type: 'invoice' | 'repayment', id: string, newDate: string) => void;
     formatBalance: (bal: number) => string;
     formatBalanceColor: (bal: number) => string;
 }
@@ -25,10 +27,42 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     onShareInvoice,
     onPrintHistory,
     onShareHistory,
+    onDeleteTransaction,
+    onUpdateTransactionDate,
     formatBalance,
     formatBalanceColor,
 }) => {
-    // Calculate balance dynamically from history
+    // State for Editing
+    const [editingId, setEditingId] = React.useState<string | null>(null);
+    const [editDate, setEditDate] = React.useState('');
+    const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
+
+    const handleStartEdit = (item: HistoryItem) => {
+        setEditingId(item.id);
+        const dateStr = new Date(item.date).toISOString().split('T')[0]; // YYYY-MM-DD
+        setEditDate(dateStr);
+        setConfirmDeleteId(null);
+    };
+
+    const handleSaveEdit = (item: HistoryItem) => {
+        if (!editDate) return;
+        // Construct ISO string with existing time or T00:00:00? 
+        // Best to keep time if possible, but simplicity: set to noon or keep time component?
+        // Let's just create a new date at current time or Keep original time?
+        // Simple: new Date(editDate) sets to 00:00 UTC usually.
+        // Let's append current time or 12:00
+        const current = new Date();
+        const newDateObj = new Date(editDate);
+        newDateObj.setHours(current.getHours(), current.getMinutes(), current.getSeconds());
+
+        onUpdateTransactionDate(item.type, item.id, newDateObj.toISOString());
+        setEditingId(null);
+    };
+
+    const handleConfirmDelete = (type: 'invoice' | 'repayment', id: string) => {
+        onDeleteTransaction(type, id, customer.id);
+        setConfirmDeleteId(null);
+    };
     const calculatedBalance = history.reduce((acc, item) => {
         if (item.type === 'invoice') {
             const inv = item as Invoice;
@@ -101,7 +135,31 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
 
                                     return (
                                         <tr key={item.id} className={`hover:bg-gray-50 ${isInvoice ? '' : 'bg-green-50/50'}`}>
-                                            <td className="p-4 text-gray-600">{new Date(item.date).toLocaleDateString('en-US')}</td>
+                                            <td className="p-4 text-gray-600">
+                                                {editingId === item.id ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <input
+                                                            type="date"
+                                                            value={editDate}
+                                                            onChange={e => setEditDate(e.target.value)}
+                                                            className="p-1 border rounded text-xs"
+                                                        />
+                                                        <button onClick={() => handleSaveEdit(item)} className="text-green-600 font-bold text-xs">حفظ</button>
+                                                        <button onClick={() => setEditingId(null)} className="text-gray-500 text-xs">إلغاء</button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 group">
+                                                        <span>{new Date(item.date).toLocaleDateString('en-US')}</span>
+                                                        <button
+                                                            onClick={() => handleStartEdit(item)}
+                                                            className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity"
+                                                            title="تعديل التاريخ"
+                                                        >
+                                                            <History size={14} />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </td>
 
                                             <td className="p-4">
                                                 {isInvoice ? (
@@ -143,24 +201,53 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                                             </td>
 
                                             <td className="p-4">
-                                                {isInvoice && (
-                                                    <div className="flex gap-2">
+                                                <div className="flex gap-2 items-center">
+                                                    {isInvoice && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => onPrintInvoice(inv)}
+                                                                className="p-1.5 text-gray-500 hover:text-primary-600 bg-white border rounded shadow-sm"
+                                                                title="طباعة"
+                                                            >
+                                                                <Printer size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => onShareInvoice(inv, customer)}
+                                                                className="p-1.5 text-blue-500 hover:text-blue-700 bg-white border rounded shadow-sm"
+                                                                title="مشاركة"
+                                                            >
+                                                                <Share2 size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+
+                                                    {/* Delete Button */}
+                                                    {confirmDeleteId === item.id ? (
+                                                        <div className="flex items-center gap-1 bg-red-50 p-1 rounded border border-red-200">
+                                                            <span className="text-xs text-red-600 font-bold">تأكيد?</span>
+                                                            <button
+                                                                onClick={() => handleConfirmDelete(isInvoice ? 'invoice' : 'repayment', item.id)}
+                                                                className="text-white bg-red-600 px-2 rounded text-xs hover:bg-red-700"
+                                                            >
+                                                                نعم
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setConfirmDeleteId(null)}
+                                                                className="text-gray-600 bg-white px-1 border rounded text-xs hover:bg-gray-50"
+                                                            >
+                                                                لا
+                                                            </button>
+                                                        </div>
+                                                    ) : (
                                                         <button
-                                                            onClick={() => onPrintInvoice(inv)}
-                                                            className="p-1.5 text-gray-500 hover:text-primary-600 bg-white border rounded shadow-sm"
-                                                            title="طباعة"
+                                                            onClick={() => setConfirmDeleteId(item.id)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                                                            title="حذف الحركة"
                                                         >
-                                                            <Printer size={16} />
+                                                            <X size={16} />
                                                         </button>
-                                                        <button
-                                                            onClick={() => onShareInvoice(inv, customer)}
-                                                            className="p-1.5 text-blue-500 hover:text-blue-700 bg-white border rounded shadow-sm"
-                                                            title="مشاركة"
-                                                        >
-                                                            <Share2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );

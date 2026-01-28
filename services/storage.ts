@@ -288,6 +288,66 @@ export const storageService = {
     }
   },
 
+  deleteInvoice: (id: string, customerId: string) => {
+    // 1. Get current list and find the invoice
+    const invoices = storageService.getInvoices();
+    const invoiceIndex = invoices.findIndex(i => i.id === id);
+    if (invoiceIndex === -1) return;
+
+    const invoice = invoices[invoiceIndex];
+
+    // 2. Remove Invoice
+    invoices.splice(invoiceIndex, 1);
+    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+
+    // 3. Revert Customer Stats & Balance
+    const customers = storageService.getCustomers();
+    const customerIndex = customers.findIndex(c => c.id === customerId);
+
+    if (customerIndex !== -1) {
+      const customer = customers[customerIndex];
+
+      // Revert Total Purchases
+      customer.totalPurchases = Math.max(0, (customer.totalPurchases || 0) - invoice.totalAmount);
+
+      // Revert Balance (Subtract amount that was added as debt)
+      if (invoice.paymentDetails && invoice.paymentDetails.debt !== 0) {
+        customer.balance = (customer.balance || 0) - invoice.paymentDetails.debt;
+      }
+
+      customers[customerIndex] = customer;
+      storageService.saveCustomers(customers);
+    }
+
+    // 4. Sync with DB
+    if (isDatabaseConfigured()) {
+      dataService.deleteInvoice(id)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
+  updateInvoiceDate: (id: string, newDate: string) => {
+    const invoices = storageService.getInvoices();
+    const invoiceIndex = invoices.findIndex(i => i.id === id);
+    if (invoiceIndex === -1) return;
+
+    invoices[invoiceIndex].date = newDate;
+    // Re-sort to maintain order if necessary, but UI usually sorts. Array order in storage doesn't strictly matter if we always sort on display.
+    // However, for consistency let's keep it somewhat ordered or just save.
+    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+
+    if (isDatabaseConfigured()) {
+      dataService.updateInvoiceDate(id, newDate)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
   // Helper to add a manual debt (e.g., old balance)
   addManualDebt: (customerId: string, customerName: string, amount: number, note: string) => {
     const invoice: Invoice = {
@@ -344,6 +404,58 @@ export const storageService = {
     }
   },
 
+  deleteRepayment: (id: string, customerId: string) => {
+    // 1. Get current list and find repayment
+    const repayments = storageService.getRepayments();
+    const index = repayments.findIndex(r => r.id === id);
+    if (index === -1) return;
+
+    const repayment = repayments[index];
+
+    // 2. Remove
+    repayments.splice(index, 1);
+    localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
+
+    // 3. Revert Customer Balance
+    const customers = storageService.getCustomers();
+    const customerIndex = customers.findIndex(c => c.id === customerId);
+
+    if (customerIndex !== -1) {
+      const customer = customers[customerIndex];
+      // Add balance back (Debt increases back because we removed a payment)
+      customer.balance = (customer.balance || 0) + repayment.amount;
+
+      customers[customerIndex] = customer;
+      storageService.saveCustomers(customers);
+    }
+
+    // 4. Sync
+    if (isDatabaseConfigured()) {
+      dataService.deleteRepayment(id)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
+  updateRepaymentDate: (id: string, newDate: string) => {
+    const repayments = storageService.getRepayments();
+    const index = repayments.findIndex(r => r.id === id);
+    if (index === -1) return;
+
+    repayments[index].date = newDate;
+    localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
+
+    if (isDatabaseConfigured()) {
+      dataService.updateRepaymentDate(id, newDate)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
   // --- Cylinder Transactions ---
   getCylinderTransactions: (): CylinderTransaction[] => {
     const data = localStorage.getItem(KEYS.CYLINDER_TX);
@@ -380,6 +492,67 @@ export const storageService = {
 
     if (isDatabaseConfigured()) {
       dataService.addCylinderTransaction(tx)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
+  deleteCylinderTransaction: (id: string, customerId: string) => {
+    // 1. Get list and tx
+    const transactions = storageService.getCylinderTransactions();
+    const index = transactions.findIndex(t => t.id === id);
+    if (index === -1) return;
+
+    const tx = transactions[index];
+
+    // 2. Remove
+    transactions.splice(index, 1);
+    localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
+
+    // 3. Revert Balance
+    const customers = storageService.getCustomers();
+    const customerIndex = customers.findIndex(c => c.id === customerId);
+
+    if (customerIndex !== -1) {
+      const customer = customers[customerIndex];
+      if (!customer.cylinderBalance) customer.cylinderBalance = {};
+
+      const currentVal = customer.cylinderBalance[tx.productName] || 0;
+
+      if (tx.type === 'out') {
+        // Was 'out' (added to debt), so subtact
+        customer.cylinderBalance[tx.productName] = currentVal - tx.quantity;
+      } else {
+        // Was 'in' (removed from debt), so add back
+        customer.cylinderBalance[tx.productName] = currentVal + tx.quantity;
+      }
+
+      customers[customerIndex] = customer;
+      storageService.saveCustomers(customers);
+    }
+
+    // 4. Sync
+    if (isDatabaseConfigured()) {
+      dataService.deleteCylinderTransaction(id)
+        .then(res => !res && markSyncNeeded())
+        .catch(() => markSyncNeeded());
+    } else {
+      markSyncNeeded();
+    }
+  },
+
+  updateCylinderTransactionDate: (id: string, newDate: string) => {
+    const transactions = storageService.getCylinderTransactions();
+    const index = transactions.findIndex(t => t.id === id);
+    if (index === -1) return;
+
+    transactions[index].date = newDate;
+    localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
+
+    if (isDatabaseConfigured()) {
+      dataService.updateCylinderTransactionDate(id, newDate)
         .then(res => !res && markSyncNeeded())
         .catch(() => markSyncNeeded());
     } else {

@@ -508,14 +508,18 @@ export const App: React.FC = () => {
                                 <span className="flex items-center gap-1"><Phone size={14} /> {customer.phone}</span>
                                 <span className="text-gray-300">|</span>
                                 <span>{customer.city}</span>
-                                {customer.cylinderBalance && Object.values(customer.cylinderBalance).reduce((a, b) => a + b, 0) > 0 && (
-                                  <>
-                                    <span className="text-gray-300">|</span>
-                                    <span className="text-purple-600 font-bold flex items-center gap-1">
-                                      <Cylinder size={14} /> {Object.values(customer.cylinderBalance).reduce((a, b) => a + b, 0)} أسطوانة
+                              </div>
+
+                              {/* Cylinder Balances */}
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {customer.cylinderBalance && Object.entries(customer.cylinderBalance).map(([name, qty]) => {
+                                  if (qty === 0) return null;
+                                  return (
+                                    <span key={name} className={`text-xs px-2 py-0.5 rounded border ${qty > 0 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                      {name}: {qty}
                                     </span>
-                                  </>
-                                )}
+                                  );
+                                })}
                               </div>
                             </div>
                           </div>
@@ -527,6 +531,22 @@ export const App: React.FC = () => {
                               {customer.balance === 0 ? '0 شيكل' : customer.balance > 0 ? `${customer.balance} عليه` : `${Math.abs(customer.balance)} له`}
                             </span>
                             <div className="flex gap-2">
+                              <button
+                                onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('customers'); }}
+                                className="flex flex-col items-center p-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition min-w-[50px]"
+                                title="كشف حساب"
+                              >
+                                <span className="text-xs font-bold mb-1">كشف</span>
+                                <FileText size={24} />
+                              </button>
+                              <button
+                                onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('cylinder_loans'); }}
+                                className="flex flex-col items-center p-3 px-4 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl transition min-w-[50px]"
+                                title="اسطوانات"
+                              >
+                                <span className="text-xs font-bold mb-1">اسطوانات</span>
+                                <Cylinder size={24} />
+                              </button>
                               <button
                                 onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('sales'); }}
                                 className="flex flex-col items-center p-3 px-8 bg-primary-100 hover:bg-primary-200 text-primary-700 rounded-xl transition min-w-[100px]"
@@ -593,6 +613,7 @@ export const App: React.FC = () => {
               onNewOrder={handleNavigateToSale}
               onManageDebt={handleNavigateToDebt}
               onManageCylinders={handleNavigateToCylinders}
+              initialCustomerId={preSelectedCustomerId}
             />
           )}
 

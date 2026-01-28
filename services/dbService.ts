@@ -348,6 +348,32 @@ export const dataService = {
         }
     },
 
+    async deleteInvoice(id: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'DELETE FROM invoices WHERE id = ?',
+                args: [id]
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async updateInvoiceDate(id: string, date: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'UPDATE invoices SET date = ? WHERE id = ?',
+                args: [date, id]
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
     // Repayments
     async getRepayments() {
         if (!tursoClient) return [];
@@ -374,6 +400,32 @@ export const dataService = {
                 sql: `INSERT INTO repayments (id, customer_id, customer_name, amount, date, method, note)
               VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 args: [repayment.id, repayment.customerId, repayment.customerName, repayment.amount, repayment.date, repayment.method, repayment.note || '']
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async deleteRepayment(id: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'DELETE FROM repayments WHERE id = ?',
+                args: [id]
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async updateRepaymentDate(id: string, date: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'UPDATE repayments SET date = ? WHERE id = ?',
+                args: [date, id]
             });
             return true;
         } catch {
@@ -408,6 +460,32 @@ export const dataService = {
                 sql: `INSERT INTO cylinder_transactions (id, customer_id, customer_name, product_name, quantity, type, date, note)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 args: [tx.id, tx.customerId, tx.customerName, tx.productName, tx.quantity, tx.type, tx.date, tx.note || '']
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async deleteCylinderTransaction(id: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'DELETE FROM cylinder_transactions WHERE id = ?',
+                args: [id]
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async updateCylinderTransactionDate(id: string, date: string) {
+        if (!tursoClient) return false;
+        try {
+            await tursoClient.execute({
+                sql: 'UPDATE cylinder_transactions SET date = ? WHERE id = ?',
+                args: [date, id]
             });
             return true;
         } catch {

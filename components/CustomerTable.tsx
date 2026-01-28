@@ -1,6 +1,6 @@
 import React from 'react';
 import { Customer } from '../types';
-import { ShoppingCart, Wallet, Repeat, Settings, Trash2 } from 'lucide-react';
+import { ShoppingCart, Wallet, Repeat, Settings, Trash2, FileText, Cylinder } from 'lucide-react';
 
 interface CustomerTableProps {
     customers: Customer[];
@@ -37,6 +37,7 @@ export const CustomerTable: React.FC<CustomerTableProps> = ({
                             <th className="p-4 hidden md:table-cell">العنوان</th>
                             <th className="p-4 hidden md:table-cell">الاتصال</th>
                             <th className="p-4">الرصيد (شيكل)</th>
+                            <th className="p-4">أرصدة الاسطوانات</th>
                             <th className="p-4">الإجراءات السريعة</th>
                             <th className="p-4">أدوات</th>
                         </tr>
@@ -56,6 +57,21 @@ export const CustomerTable: React.FC<CustomerTableProps> = ({
                                 <td className={`p-4 font-black text-xl ${formatBalanceColor(c.balance)}`}>
                                     {formatBalance(c.balance)}
                                 </td>
+                                <td className="p-4">
+                                    <div className="flex flex-wrap gap-1 w-32">
+                                        {c.cylinderBalance && Object.entries(c.cylinderBalance).map(([name, qty]) => {
+                                            if (qty === 0) return null;
+                                            return (
+                                                <span key={name} className={`text-xs px-1.5 py-0.5 rounded border ${qty > 0 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                                    {name}: {qty}
+                                                </span>
+                                            );
+                                        })}
+                                        {(!c.cylinderBalance || Object.values(c.cylinderBalance).every(q => q === 0)) && (
+                                            <span className="text-gray-300 text-xs">-</span>
+                                        )}
+                                    </div>
+                                </td>
                                 <td className="p-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
                                     <button onClick={(e) => { e.stopPropagation(); onNewOrder(c.id); }} className="text-white bg-primary-500 hover:bg-primary-600 p-2 rounded-lg flex items-center gap-1 shadow-sm transition" title="طلبية جديدة"><ShoppingCart size={18} /> <span className="text-xs font-bold hidden xl:inline">بيع</span></button>
                                     <button onClick={(e) => { e.stopPropagation(); onManageDebt?.(c.id); }} className="text-white bg-red-500 hover:bg-red-600 p-2 rounded-lg flex items-center gap-1 shadow-sm transition" title="الديون"><Wallet size={18} /> <span className="text-xs font-bold hidden xl:inline">ديون</span></button>
@@ -63,6 +79,7 @@ export const CustomerTable: React.FC<CustomerTableProps> = ({
                                 </td>
                                 <td className="p-4" onClick={(e) => e.stopPropagation()}>
                                     <div className="flex gap-1">
+                                        <button onClick={(e) => { e.stopPropagation(); onOpenHistory(c); }} className="text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-full transition" title="كشف حساب"><FileText size={20} /></button>
                                         <button onClick={(e) => onOpenEdit(c, e)} className="text-gray-400 hover:text-green-600 p-2 hover:bg-green-50 rounded-full transition" title="تعديل"><Settings size={20} /></button>
                                         <button onClick={(e) => onConfirmDelete(c.id, e)} className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-full transition" title="حذف"><Trash2 size={20} /></button>
                                     </div>

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Product, CylinderTransaction } from '../types';
 import { storageService } from '../services/storage';
-import { Repeat, Search, ArrowUpRight, ArrowDownLeft, Cylinder, CheckCircle, AlertCircle } from 'lucide-react';
+import { Repeat, Search, ArrowUpRight, ArrowDownLeft, Cylinder, CheckCircle, AlertCircle, Trash2, History, X } from 'lucide-react';
 
 interface CylinderLoansProps {
   customers: Customer[];
@@ -23,6 +23,11 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   const [note, setNote] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState('');
+
+  // Edit/Delete State
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     setTransactions(storageService.getCylinderTransactions());
@@ -123,6 +128,30 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   };
 
   // Filter customers for the list view
+  const handleDelete = (tx: CylinderTransaction) => {
+    storageService.deleteCylinderTransaction(tx.id, tx.customerId);
+    setTransactions(storageService.getCylinderTransactions());
+    onUpdate();
+    setConfirmDeleteId(null);
+  };
+
+  const handleUpdateDate = (id: string) => {
+    if (!editDate) return;
+    const current = new Date();
+    const newDateObj = new Date(editDate);
+    newDateObj.setHours(current.getHours(), current.getMinutes(), current.getSeconds());
+
+    storageService.updateCylinderTransactionDate(id, newDateObj.toISOString());
+    setTransactions(storageService.getCylinderTransactions());
+    setEditingId(null);
+  };
+
+  const startEdit = (tx: CylinderTransaction) => {
+    setEditingId(tx.id);
+    setEditDate(new Date(tx.date).toISOString().split('T')[0]);
+    setConfirmDeleteId(null);
+  };
+
   const filteredCustomers = customers.filter(c => {
     const hasActiveLoan = c.cylinderBalance && Object.values(c.cylinderBalance).some(v => v !== 0);
     const matchesSearch = c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.serialNumber.toString().includes(searchTerm);
@@ -371,6 +400,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                     <th className="p-3">العدد</th>
                     <th className="p-3">الحركة</th>
                     <th className="p-3">ملاحظات</th>
+                    <th className="p-3">أدوات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -383,23 +413,71 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                       .map(tx => (
                         <tr key={tx.id} className="hover:bg-gray-50 transition">
                           <td className="p-3 text-sm text-gray-600">
-                            {new Date(tx.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                            <div className="text-xs text-gray-400">
-                              {new Date(tx.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                            </div>
+                            {editingId === tx.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="date"
+                                  value={editDate}
+                                  onChange={e => setEditDate(e.target.value)}
+                                  className="p-1 border rounded text-xs w-32"
+                                />
+                                <button onClick={() => handleUpdateDate(tx.id)} className="text-green-600 font-bold text-xs">حفظ</button>
+                                <button onClick={() => setEditingId(null)} className="text-gray-500 text-xs">إلغاء</button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 group">
+                                <span>{new Date(tx.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                                <button
+                                  onClick={() => startEdit(tx)}
+                                  className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity"
+                                  title="تعديل التاريخ"
+                                >
+                                  <History size={14} />
+                                </button>
+                                <div className="text-xs text-gray-400 block w-full">
+                                  {new Date(tx.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 font-bold text-gray-800">{tx.customerName}</td>
                           <td className="p-3 text-sm">{tx.productName}</td>
                           <td className="p-3 font-black text-lg">{tx.quantity}</td>
                           <td className="p-3">
                             <span className={`px-2 py-1 rounded-lg text-xs font-bold ${tx.type === 'out'
-                                ? 'bg-red-50 text-red-600'
-                                : 'bg-green-50 text-green-600'
+                              ? 'bg-red-50 text-red-600'
+                              : 'bg-green-50 text-green-600'
                               }`}>
                               {tx.type === 'out' ? 'إعارة' : 'إرجاع'}
                             </span>
                           </td>
                           <td className="p-3 text-sm text-gray-500">{tx.note || '-'}</td>
+                          <td className="p-3">
+                            {confirmDeleteId === tx.id ? (
+                              <div className="flex items-center gap-1 bg-red-50 p-1 rounded border border-red-200 w-fit">
+                                <button
+                                  onClick={() => handleDelete(tx)}
+                                  className="text-white bg-red-600 px-2 rounded text-xs hover:bg-red-700"
+                                >
+                                  حذف
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="text-gray-600 bg-white px-1 border rounded text-xs hover:bg-gray-50"
+                                >
+                                  إلغاء
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDeleteId(tx.id)}
+                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                                title="حذف الحركة"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))
                   )}

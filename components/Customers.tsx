@@ -21,9 +21,10 @@ interface CustomersProps {
   onNewOrder: (customerId: string) => void;
   onManageDebt?: (customerId: string) => void;
   onManageCylinders?: (customerId: string) => void;
+  initialCustomerId?: string | null;
 }
 
-export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpdate, onNewOrder, onManageDebt, onManageCylinders }) => {
+export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpdate, onNewOrder, onManageDebt, onManageCylinders, initialCustomerId }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Initialize ViewMode from LocalStorage
@@ -38,6 +39,16 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
   // Combined History State
   const [customerHistory, setCustomerHistory] = useState<HistoryItem[]>([]);
+
+  // Auto-open history if initialCustomerId is provided
+  useEffect(() => {
+    if (initialCustomerId) {
+      const customer = customers.find(c => c.id === initialCustomerId);
+      if (customer) {
+        openHistory(customer);
+      }
+    }
+  }, [initialCustomerId, customers]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Validation State
@@ -228,6 +239,37 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
     if (bal > 0) return 'text-red-600';
     if (bal < 0) return 'text-green-600';
     return 'text-gray-400';
+  };
+
+  const handleDeleteTransaction = (type: 'invoice' | 'repayment', id: string, customerId: string) => {
+    if (type === 'invoice') {
+      storageService.deleteInvoice(id, customerId);
+    } else {
+      storageService.deleteRepayment(id, customerId);
+    }
+
+    // Refresh Customer List (Balance update)
+    const updatedCustomers = storageService.getCustomers();
+    onUpdate(updatedCustomers);
+
+    // Refresh History for current customer
+    const updatedCustomer = updatedCustomers.find(c => c.id === customerId);
+    if (updatedCustomer) {
+      openHistory(updatedCustomer);
+    }
+  };
+
+  const handleUpdateTransactionDate = (type: 'invoice' | 'repayment', id: string, newDate: string) => {
+    if (type === 'invoice') {
+      storageService.updateInvoiceDate(id, newDate);
+    } else {
+      storageService.updateRepaymentDate(id, newDate);
+    }
+
+    // Refresh History (Order might change)
+    if (selectedHistoryCustomer) {
+      openHistory(selectedHistoryCustomer);
+    }
   };
 
   // State for Print Preview Modal
@@ -634,6 +676,8 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
           onShareInvoice={shareInvoice}
           onPrintHistory={printHistory}
           onShareHistory={shareHistory}
+          onDeleteTransaction={handleDeleteTransaction}
+          onUpdateTransactionDate={handleUpdateTransactionDate}
           formatBalance={formatBalance}
           formatBalanceColor={formatBalanceColor}
         />

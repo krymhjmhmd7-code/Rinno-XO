@@ -1,6 +1,6 @@
 import React from 'react';
 import { Customer } from '../types';
-import { MapPin, Phone, ShoppingCart, Wallet, Repeat, Settings, Trash2 } from 'lucide-react';
+import { MapPin, Phone, ShoppingCart, Wallet, Repeat, Settings, Trash2, FileText, Cylinder } from 'lucide-react';
 
 interface CustomerCardProps {
     customer: Customer;
@@ -32,6 +32,7 @@ export const CustomerCard: React.FC<CustomerCardProps> = ({
         >
             {/* Action Buttons - Left aligned absolute */}
             <div className="absolute top-4 left-4 flex gap-2 opacity-0 group-hover:opacity-100 transition z-10" onClick={(e) => e.stopPropagation()}>
+                <button onClick={(e) => { e.stopPropagation(); onOpenHistory(customer); }} className="bg-white shadow text-blue-500 hover:bg-blue-50 p-2 rounded-full border border-gray-100" title="كشف حساب"><FileText size={18} /></button>
                 <button onClick={(e) => onOpenEdit(customer, e)} className="bg-white shadow text-gray-500 hover:bg-gray-100 p-2 rounded-full border border-gray-100" title="تعديل"><Settings size={18} /></button>
                 <button onClick={(e) => onConfirmDelete(customer.id, e)} className="bg-white shadow text-red-500 hover:bg-red-50 p-2 rounded-full border border-gray-100" title="حذف"><Trash2 size={18} /></button>
             </div>
@@ -61,6 +62,18 @@ export const CustomerCard: React.FC<CustomerCardProps> = ({
                     <Phone size={18} className="text-gray-400" />
                     <span dir="ltr" className="text-lg font-mono">{customer.phone}</span>
                 </div>
+            </div>
+
+            {/* Cylinder Balances */}
+            <div className="mt-3 flex flex-wrap gap-1">
+                {customer.cylinderBalance && Object.entries(customer.cylinderBalance).map(([name, qty]) => {
+                    if (qty === 0) return null;
+                    return (
+                        <span key={name} className={`text-xs px-2 py-0.5 rounded border ${qty > 0 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                            {name}: {qty}
+                        </span>
+                    );
+                })}
             </div>
 
             <div className="mt-4 pt-3 border-t border-gray-50 flex justify-between items-center">
