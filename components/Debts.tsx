@@ -124,7 +124,8 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
   const resetForm = () => {
     setAmount('');
     setNote('');
-    setSelectedCustomerId('');
+    // Do not reset selected customer, keep them selected for continuous entry
+    // setSelectedCustomerId(''); 
   };
 
   const showSuccessMessage = () => {
