@@ -282,24 +282,32 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
           <head>
             <title>فاتورة #${inv.id.slice(-6)}</title>
             <style>
-              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; }
-              .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; color: #000; }
+              .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #000; padding-bottom: 10px; }
               .info { margin-bottom: 20px; font-size: 14px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-              th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
-              th { background-color: #f4f4f4; }
-              .total { font-size: 18px; font-weight: bold; text-align: left; }
-              .footer { margin-top: 40px; text-align: center; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000; }
+              th, td { border: 1px solid #000; padding: 8px; text-align: right; }
+              th { background-color: #fff; font-weight: bold; }
+              .total { font-size: 16px; font-weight: bold; margin-top: 10px; border-top: 1px solid #000; padding-top: 10px; }
+              .footer { margin-top: 30px; text-align: center; font-size: 12px; border-top: 1px dashed #000; padding-top: 10px; }
             </style>
           </head>
           <body>
             <div class="header">
-              <h1>GasPro - فاتورة غاز</h1>
-              <p>تاريخ: ${new Date(inv.date).toLocaleDateString('en-US')}</p>
+              <h2>فاتورة ضريبية / مبيعات</h2>
+              <p>مؤسسة رنّو اكسجين</p>
             </div>
             <div class="info">
-              <p><strong>الزبون:</strong> ${inv.customerName}</p>
-              <p><strong>رقم الفاتورة:</strong> #${inv.id.slice(-6)}</p>
+              <table style="border: none; width: 100%;">
+                <tr style="border: none;">
+                  <td style="border: none;"><strong>الزبون:</strong> ${inv.customerName}</td>
+                  <td style="border: none; text-align: left;"><strong>التاريخ:</strong> ${new Date(inv.date).toLocaleDateString('en-US')}</td>
+                </tr>
+                <tr style="border: none;">
+                  <td style="border: none;"><strong>رقم الفاتورة:</strong> #${inv.id.slice(-6)}</td>
+                  <td style="border: none;"></td>
+                </tr>
+              </table>
             </div>
             <table>
               <thead>
@@ -319,10 +327,11 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
             </table>
             <div class="total">
               <p>المجموع الكلي: ${inv.totalAmount} شيكل</p>
-              <p style="font-size: 14px; color: #555;">المدفوع نقداً: ${inv.paymentDetails.cash} | شيك: ${inv.paymentDetails.cheque}</p>
+              <p style="font-size: 14px;">المدفوع نقداً: ${inv.paymentDetails.cash} | شيك: ${inv.paymentDetails.cheque}</p>
+              <p style="font-size: 14px;">المتبقي ذمم: ${inv.paymentDetails.debt} شيكل</p>
             </div>
             <div class="footer">
-              <p>شكراً لتعاملكم معنا</p>
+              <p>شكراً لتعاملكم معنا - نعتز بقطتكم</p>
             </div>
           </body>
         </html>
@@ -404,26 +413,28 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
           <head>
             <title>كشف حساب - ${customer.name}</title>
             <style>
-              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; }
-              h1, h2 { text-align: center; margin: 5px 0; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
-              th { background-color: #f4f4f4; }
+              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; color: #000; }
+              h1, h2 { text-align: center; margin: 10px 0; color: #000; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #000; }
+              th, td { border: 1px solid #000; padding: 8px; text-align: right; color: #000; }
+              th { background-color: #fff; font-weight: bold; border-bottom: 2px solid #000; }
               .footer { margin-top: 30px; text-align: center; font-weight: bold; }
-              .balance { font-size: 18px; margin-top: 10px; padding: 10px; border: 2px solid #333; display: inline-block; }
-              .credit { color: green; }
-              .debt { color: red; }
-              .row-invoice { background-color: #fff; }
-              .row-repay { background-color: #f9fff9; }
+              .balance { font-size: 18px; margin-top: 10px; padding: 10px; border: 1px solid #000; display: inline-block; }
             </style>
           </head>
           <body>
-            <h1>GasPro</h1>
             <h2>كشف حساب زبون</h2>
-            <div style="margin-top: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;">
-              <p><strong>الاسم:</strong> ${customer.name} (#${customer.serialNumber})</p>
-              <p><strong>رقم الجوال:</strong> ${customer.phone}</p>
-              <p><strong>تاريخ الاستخراج:</strong> ${new Date().toLocaleDateString('en-US')}</p>
+            <div style="margin-top: 20px; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
+              <table style="border: none; margin: 0;">
+                <tr style="border: none;">
+                  <td style="border: none; font-weight: bold;">الاسم: ${customer.name} (#${customer.serialNumber})</td>
+                  <td style="border: none; text-align: left;">تاريخ الاستخراج: ${new Date().toLocaleDateString('en-US')}</td>
+                </tr>
+                <tr style="border: none;">
+                  <td style="border: none;">رقم الجوال: ${customer.phone}</td>
+                  <td style="border: none;"></td>
+                </tr>
+              </table>
             </div>
             
             <table>
@@ -445,7 +456,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         const details = inv.items.map(i => `${i.productName} (${i.quantity})`).join(', ');
         // Invoice increases debt (Debit)
         return `
-                      <tr class="row-invoice">
+                      <tr>
                         <td>${date}</td>
                         <td>فاتورة #${inv.id.slice(-6)}</td>
                         <td>${details}</td>
@@ -453,7 +464,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
                         <td>0</td>
                       </tr>
                       ${(inv.paymentDetails.cash + inv.paymentDetails.cheque) > 0 ? `
-                        <tr class="row-repay">
+                        <tr>
                           <td>${date}</td>
                           <td>دفع فوري (فاتورة)</td>
                           <td>نقد/شيك</td>
@@ -466,7 +477,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         const rep = item as Repayment;
         // Repayment decreases debt (Credit)
         return `
-                      <tr class="row-repay">
+                      <tr>
                         <td>${date}</td>
                         <td>سند سداد/قبض</td>
                         <td>${rep.method === 'cash' ? 'نقداً' : 'شيك'} ${rep.note ? ` - ${rep.note}` : ''}</td>
@@ -482,9 +493,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
             <div class="footer">
               <div class="balance">
                  الرصيد الحالي النهائي: 
-                 <span class="${customer.balance > 0 ? 'debt' : 'credit'}">
-                   ${customer.balance > 0 ? `${customer.balance} (عليه)` : `${Math.abs(customer.balance)} (له)`}
-                 </span>
+                 ${customer.balance > 0 ? `${customer.balance} (عليه)` : `${Math.abs(customer.balance)} (له)`}
               </div>
             </div>
           </body>
@@ -722,83 +731,88 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         </div>
       )}
 
-      {/* Hidden Invoice Template for Image Generation */}
+      {/* Hidden Invoice Template for Image Generation - B&W Minimal */}
       {shareInvoiceData && (
         <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
           <div
             ref={invoiceTemplateRef}
             style={{
               width: '400px',
-              padding: '24px',
+              padding: '20px',
               fontFamily: 'Arial, sans-serif',
               direction: 'rtl',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'white',
+              color: 'black',
+              border: '1px solid black'
             }}
           >
-            <div style={{ background: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <div style={{ background: 'white' }}>
               {/* Header */}
-              <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #667eea', paddingBottom: '16px' }}>
-                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#667eea', marginBottom: '4px' }}>Rinno OX</div>
-                <div style={{ fontSize: '12px', color: '#666' }}>نظام إدارة وتوزيع الغاز</div>
+              <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '2px solid black', paddingBottom: '12px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px' }}>فاتورة مبيعات</div>
+                <div style={{ fontSize: '14px', color: 'black' }}>Rinno OX</div>
               </div>
 
               {/* Invoice Info */}
-              <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#666', fontSize: '13px' }}>رقم الفاتورة:</span>
-                  <span style={{ fontWeight: 'bold', color: '#333' }}>#{shareInvoiceData.inv.id.slice(-6)}</span>
+              <div style={{ marginBottom: '16px', borderBottom: '1px solid black', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '13px' }}>رقم الفاتورة:</span>
+                  <span style={{ fontWeight: 'bold' }}>#{shareInvoiceData.inv.id.slice(-6)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#666', fontSize: '13px' }}>التاريخ:</span>
-                  <span style={{ fontWeight: 'bold', color: '#333' }}>{new Date(shareInvoiceData.inv.date).toLocaleDateString('en-US')}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '13px' }}>التاريخ:</span>
+                  <span style={{ fontWeight: 'bold' }}>{new Date(shareInvoiceData.inv.date).toLocaleDateString('en-US')}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#666', fontSize: '13px' }}>الزبون:</span>
-                  <span style={{ fontWeight: 'bold', color: '#333' }}>{shareInvoiceData.customer.name}</span>
+                  <span style={{ fontSize: '13px' }}>الزبون:</span>
+                  <span style={{ fontWeight: 'bold' }}>{shareInvoiceData.customer.name}</span>
                 </div>
               </div>
 
-              {/* Items */}
+              {/* Items Table */}
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '8px' }}>الأصناف:</div>
-                {shareInvoiceData.inv.items.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: idx % 2 === 0 ? '#f0f0f0' : 'white', borderRadius: '4px' }}>
-                    <span>{item.productName}</span>
-                    <span style={{ fontWeight: 'bold' }}>×{item.quantity}</span>
-                  </div>
-                ))}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>الصنف</th>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>الكمية</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shareInvoiceData.inv.items.map((item, idx) => (
+                      <tr key={idx}>
+                        <td style={{ border: '1px solid black', padding: '6px' }}>{item.productName}</td>
+                        <td style={{ border: '1px solid black', padding: '6px' }}>×{item.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
               {/* Total */}
-              <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', marginBottom: '4px' }}>المجموع الكلي</div>
-                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{shareInvoiceData.inv.totalAmount} ₪</div>
+              <div style={{ border: '2px solid black', padding: '12px', textAlign: 'center', fontWeight: 'bold', marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', marginBottom: '2px' }}>المجموع الكلي</div>
+                <div style={{ fontSize: '24px' }}>{shareInvoiceData.inv.totalAmount} ₪</div>
               </div>
 
               {/* Payment Details */}
-              <div style={{ marginTop: '16px', fontSize: '13px', color: '#666' }}>
+              <div style={{ fontSize: '12px' }}>
                 {shareInvoiceData.inv.paymentDetails.cash > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span>💵 نقداً:</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>المدفوع نقداً:</span>
                     <span>{shareInvoiceData.inv.paymentDetails.cash} ₪</span>
                   </div>
                 )}
                 {shareInvoiceData.inv.paymentDetails.cheque > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span>📝 شيك:</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>المدفوع شيك:</span>
                     <span>{shareInvoiceData.inv.paymentDetails.cheque} ₪</span>
                   </div>
                 )}
                 {shareInvoiceData.inv.paymentDetails.debt > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626', fontWeight: 'bold' }}>
-                    <span>⚠️ متبقي:</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                    <span>المتبقي ذمم:</span>
                     <span>{shareInvoiceData.inv.paymentDetails.debt} ₪</span>
-                  </div>
-                )}
-                {shareInvoiceData.inv.paymentDetails.debt < 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#16a34a', fontWeight: 'bold' }}>
-                    <span>✅ رصيد لك:</span>
-                    <span>{Math.abs(shareInvoiceData.inv.paymentDetails.debt)} ₪</span>
                   </div>
                 )}
               </div>
@@ -807,91 +821,110 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         </div>
       )}
 
-      {/* Hidden History Template for Image Generation */}
+      {/* Hidden History Template for Image Generation - B&W Simple */}
       {shareHistoryData && (
         <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
           <div
             ref={historyTemplateRef}
             style={{
-              width: '420px',
+              width: '500px',
               padding: '24px',
               fontFamily: 'Arial, sans-serif',
               direction: 'rtl',
-              background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+              background: 'white',
+              color: 'black',
+              border: '1px solid black',
             }}
           >
-            <div style={{ background: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <div style={{ background: 'white', padding: '12px' }}>
               {/* Header */}
-              <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #11998e', paddingBottom: '16px' }}>
-                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#11998e', marginBottom: '4px' }}>Rinno OX</div>
-                <div style={{ fontSize: '14px', color: '#333', fontWeight: 'bold' }}>كشف حساب</div>
+              <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '2px solid black', paddingBottom: '12px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px' }}>كشف حساب زبون</div>
               </div>
 
               {/* Customer Info */}
-              <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#666', fontSize: '13px' }}>الزبون:</span>
-                  <span style={{ fontWeight: 'bold', color: '#333' }}>{shareHistoryData.customer.name} (#{shareHistoryData.customer.serialNumber})</span>
+              <div style={{ marginBottom: '16px', borderBottom: '1px solid black', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 'bold' }}>الاسم: {shareHistoryData.customer.name} (#{shareHistoryData.customer.serialNumber})</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#666', fontSize: '13px' }}>تاريخ الاستخراج:</span>
-                  <span style={{ fontWeight: 'bold', color: '#333' }}>{new Date().toLocaleDateString('en-US')}</span>
+                  <span style={{ fontSize: '14px' }}>رقم الجوال: {shareHistoryData.customer.phone}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                  <span style={{ fontSize: '12px' }}>تاريخ: {new Date().toLocaleDateString('en-US')}</span>
                 </div>
               </div>
 
-              {/* History Items (Last 10) */}
-              <div style={{ marginBottom: '16px', maxHeight: '400px', overflow: 'hidden' }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '8px' }}>آخر الحركات:</div>
-                {shareHistoryData.history.slice(0, 10).map((item, idx) => {
-                  const date = new Date(item.date).toLocaleDateString('en-US');
-                  if (item.type === 'invoice') {
-                    const inv = item as Invoice;
-                    const debtAmount = inv.paymentDetails?.debt || 0;
-                    const itemsText = inv.items.map(i => `${i.productName}×${i.quantity}`).join(' | ');
-                    // Only show invoices that affected the balance (debt > 0)
-                    if (debtAmount === 0) {
-                      return (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f0f9ff', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #3b82f6' }}>
-                          <span style={{ fontSize: '12px' }}>📄 {date} - فاتورة #{inv.id.slice(-6)} (مدفوعة)</span>
-                          <span style={{ fontWeight: 'bold', color: '#3b82f6' }}>{inv.totalAmount} ₪</span>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={idx} style={{ padding: '8px', background: '#fff4f4', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #dc2626' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '12px' }}>📄 {date} - فاتورة #{inv.id.slice(-6)}</span>
-                          <span style={{ fontWeight: 'bold', color: '#dc2626' }}>+{debtAmount} ₪</span>
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#333', fontWeight: '600', background: '#ffe8e8', padding: '6px 8px', borderRadius: '4px' }}>
-                          📦 {itemsText}
-                        </div>
-                      </div>
-                    );
-                  } else {
-                    const rep = item as Repayment;
-                    return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f0fff4', borderRadius: '4px', marginBottom: '4px', borderRight: '3px solid #16a34a' }}>
-                        <span style={{ fontSize: '12px' }}>💵 {date} - سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</span>
-                        <span style={{ fontWeight: 'bold', color: '#16a34a' }}>-{rep.amount} ₪</span>
-                      </div>
-                    );
-                  }
-                })}
-                {shareHistoryData.history.length > 10 && (
-                  <div style={{ textAlign: 'center', color: '#666', fontSize: '12px', marginTop: '8px' }}>
-                    +{shareHistoryData.history.length - 10} حركة أخرى
+              {/* History Items (Last 15) */}
+              <div style={{ marginBottom: '16px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>التاريخ</th>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>التفاصيل</th>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>عليه</th>
+                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>له</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shareHistoryData.history.slice(0, 15).map((item, idx) => {
+                      const date = new Date(item.date).toLocaleDateString('en-US');
+                      if (item.type === 'invoice') {
+                        const inv = item as Invoice;
+                        const debt = inv.totalAmount;
+                        const paid = inv.paymentDetails.cash + inv.paymentDetails.cheque;
+
+                        return (
+                          <React.Fragment key={idx}>
+                            <tr>
+                              <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
+                              <td style={{ border: '1px solid black', padding: '6px' }}>
+                                <div>فاتورة #{inv.id.slice(-6)}</div>
+                                <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
+                                  {inv.items.map(i => `${i.productName} (${i.quantity})`).join(' | ')}
+                                </div>
+                              </td>
+                              <td style={{ border: '1px solid black', padding: '6px' }}>{debt}</td>
+                              <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
+                            </tr>
+                            {paid > 0 && (
+                              <tr>
+                                <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
+                                <td style={{ border: '1px solid black', padding: '6px' }}>سداد فوري</td>
+                                <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
+                                <td style={{ border: '1px solid black', padding: '6px' }}>{paid}</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      } else {
+                        const rep = item as Repayment;
+                        return (
+                          <tr key={idx}>
+                            <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
+                            <td style={{ border: '1px solid black', padding: '6px' }}>سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</td>
+                            <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
+                            <td style={{ border: '1px solid black', padding: '6px' }}>{rep.amount}</td>
+                          </tr>
+                        );
+                      }
+                    })}
+                  </tbody>
+                </table>
+                {shareHistoryData.history.length > 15 && (
+                  <div style={{ textAlign: 'center', fontSize: '10px', marginTop: '4px' }}>
+                    ... وحركات أخرى غير ظاهرة ...
                   </div>
                 )}
               </div>
 
               {/* Balance */}
-              <div style={{ background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', color: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center', marginTop: '16px' }}>
-                <div style={{ fontSize: '12px', marginBottom: '4px' }}>الرصيد الحالي</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+              <div style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                <div>الرصيد الحالي النهائي</div>
+                <div style={{ fontSize: '18px', marginTop: '4px' }}>
                   {shareHistoryData.customer.balance > 0 ?
-                    `عليه: ${shareHistoryData.customer.balance}` :
-                    `له: ${Math.abs(shareHistoryData.customer.balance)}`} ₪
+                    `${shareHistoryData.customer.balance} (عليه)` :
+                    `${Math.abs(shareHistoryData.customer.balance)} (له)`}
                 </div>
               </div>
 
