@@ -29,6 +29,12 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   const [editDate, setEditDate] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Password Protection State
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
+  const [pendingDeleteTx, setPendingDeleteTx] = useState<CylinderTransaction | null>(null);
+
   useEffect(() => {
     setTransactions(storageService.getCylinderTransactions());
     if (products.length > 0 && !selectedProductName) {
@@ -129,10 +135,31 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
 
   // Filter customers for the list view
   const handleDelete = (tx: CylinderTransaction) => {
+    const settings = storageService.getSettings();
+    const delPassword = settings.deletePassword || '1234';
+    setPendingDeleteTx(tx);
+    setShowDeletePassword(true);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+  };
+
+  const performDelete = (tx: CylinderTransaction) => {
     storageService.deleteCylinderTransaction(tx.id, tx.customerId);
     setTransactions(storageService.getCylinderTransactions());
     onUpdate();
     setConfirmDeleteId(null);
+    setShowDeletePassword(false);
+    setPendingDeleteTx(null);
+  };
+
+  const verifyDeletePassword = () => {
+    const settings = storageService.getSettings();
+    const delPassword = settings.deletePassword || '1234';
+    if (deletePasswordInput === delPassword) {
+      if (pendingDeleteTx) performDelete(pendingDeleteTx);
+    } else {
+      setDeletePasswordError('كلمة المرور خاطئة');
+    }
   };
 
   const handleUpdateDate = (id: string) => {
@@ -487,6 +514,31 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
           </div>
         </div>
       </div>
+
+      {/* Password Prompt Modal */}
+      {showDeletePassword && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
+            <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لإتمام الحذف.</p>
+            <input
+              type="password"
+              className={`w-full p-2 border rounded mb-2 ${deletePasswordError ? 'border-red-500 bg-red-50' : ''}`}
+              placeholder="كلمة المرور"
+              value={deletePasswordInput}
+              onChange={e => {
+                setDeletePasswordInput(e.target.value);
+                setDeletePasswordError('');
+              }}
+            />
+            {deletePasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{deletePasswordError}</p>}
+            <div className="flex gap-2">
+              <button onClick={verifyDeletePassword} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
+              <button onClick={() => { setShowDeletePassword(false); setConfirmDeleteId(null); }} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

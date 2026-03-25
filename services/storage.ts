@@ -12,6 +12,7 @@ const KEYS = {
   CYLINDER_TX: 'gaspro_cylinder_transactions',
   CUSTOMER_TYPES: 'gaspro_customer_types',
   SETTINGS: 'gaspro_settings',
+  RECYCLE_BIN: 'gaspro_recycle_bin',
 };
 
 // Initial Seed Data - Empty for production use
@@ -93,6 +94,19 @@ const markSyncDone = () => {
     current.needsSync = false;
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(current));
   }
+};
+
+// Helper to merge local and cloud records by ID (preserves offline changes)
+const mergeById = <T extends { id: string }>(local: T[], cloud: T[]): T[] => {
+    const merged = new Map<string, T>();
+    for (const item of cloud) {
+        merged.set(item.id, item);
+    }
+    // Local records override cloud (user's latest edits take priority)
+    for (const item of local) {
+        merged.set(item.id, item);
+    }
+    return Array.from(merged.values());
 };
 
 export const storageService = {
@@ -296,6 +310,9 @@ export const storageService = {
 
     const invoice = invoices[invoiceIndex];
 
+    // Save to recycle bin before deleting
+    storageService.moveToRecycleBin('invoice', invoice, `فاتورة - ${invoice.customerName} - ${invoice.totalAmount} شيكل`);
+
     // 2. Remove Invoice
     invoices.splice(invoiceIndex, 1);
     localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
@@ -412,6 +429,9 @@ export const storageService = {
 
     const repayment = repayments[index];
 
+    // Save to recycle bin before deleting
+    storageService.moveToRecycleBin('repayment', repayment, `سداد ${repayment.amount} شيكل - ${repayment.customerName}`);
+
     // 2. Remove
     repayments.splice(index, 1);
     localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
@@ -507,6 +527,9 @@ export const storageService = {
 
     const tx = transactions[index];
 
+    // Save to recycle bin before deleting
+    storageService.moveToRecycleBin('cylinder_transaction', tx, `${tx.type === 'out' ? 'إعارة' : 'إرجاع'} ${tx.quantity} ${tx.productName} - ${tx.customerName}`);
+
     // 2. Remove
     transactions.splice(index, 1);
     localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
@@ -567,55 +590,51 @@ export const storageService = {
     try {
       const { dataService } = await import('./dbService');
 
-      // 1. Check for Global Reset Signal
+      // 1. Check for Global Reset Signal (safe: no auto-wipe)
       const serverResetTime = await dataService.getResetTimestamp();
       const localResetTime = localStorage.getItem('last_reset_timestamp');
 
       if (serverResetTime && serverResetTime !== localResetTime) {
-        console.log('Detected Global Factory Reset. Wiping local data...');
-        // Wipe Local Data
-        localStorage.removeItem(KEYS.CUSTOMERS);
-        localStorage.removeItem(KEYS.PRODUCTS);
-        localStorage.removeItem(KEYS.INVOICES);
-        localStorage.removeItem(KEYS.REPAYMENTS);
-        localStorage.removeItem(KEYS.CYLINDER_TX);
-
-        // Update Local Timestamp
+        console.warn('Detected remote factory reset signal. Updating timestamp only (local data preserved).');
         localStorage.setItem('last_reset_timestamp', serverResetTime);
-
-        // Reload page to reflect empty state
-        window.location.reload();
-        return true;
       }
 
-      // 2. Customers
+      // 2. Customers - Smart Merge
       const dbCustomers = await dataService.getCustomers();
-      if (dbCustomers.length > 0) {
-        localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(dbCustomers));
-      }
+      const localCustomers: any[] = JSON.parse(localStorage.getItem(KEYS.CUSTOMERS) || '[]');
+      const mergedCustomers = mergeById(localCustomers, dbCustomers);
+      localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(mergedCustomers));
 
-      // 3. Products
+      // 3. Products - Smart Merge
       const dbProducts = await dataService.getProducts();
-      if (dbProducts.length > 0) {
-        localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(dbProducts));
-      }
+      const localProducts: any[] = JSON.parse(localStorage.getItem(KEYS.PRODUCTS) || '[]');
+      const mergedProducts = mergeById(localProducts, dbProducts);
+      localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(mergedProducts));
 
-      // 4. Invoices
+      // 4. Invoices - Smart Merge
       const dbInvoices = await dataService.getInvoices();
-      if (dbInvoices.length > 0) {
-        localStorage.setItem(KEYS.INVOICES, JSON.stringify(dbInvoices));
-      }
+      const localInvoices: any[] = JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]');
+      const mergedInvoices = mergeById(localInvoices, dbInvoices);
+      localStorage.setItem(KEYS.INVOICES, JSON.stringify(mergedInvoices));
 
-      // 5. Repayments
+      // 5. Repayments - Smart Merge
       const dbRepayments = await dataService.getRepayments();
-      if (dbRepayments.length > 0) {
-        localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(dbRepayments));
-      }
+      const localRepayments: any[] = JSON.parse(localStorage.getItem(KEYS.REPAYMENTS) || '[]');
+      const mergedRepayments = mergeById(localRepayments, dbRepayments);
+      localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(mergedRepayments));
 
-      // 6. Cylinder Tx
+      // 6. Cylinder Tx - Smart Merge
       const dbTx = await dataService.getCylinderTransactions();
-      if (dbTx.length > 0) {
-        localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(dbTx));
+      const localTx: any[] = JSON.parse(localStorage.getItem(KEYS.CYLINDER_TX) || '[]');
+      const mergedTx = mergeById(localTx, dbTx);
+      localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(mergedTx));
+
+      // 7. Push merged data back to cloud
+      try {
+        if (mergedCustomers.length > 0) await dataService.saveAllCustomers(mergedCustomers);
+        if (mergedProducts.length > 0) await dataService.saveAllProducts(mergedProducts);
+      } catch (pushErr) {
+        console.warn('Failed to push merged data to cloud:', pushErr);
       }
 
       console.log('Active Sync: Data loaded from Turso successfully');
@@ -803,5 +822,102 @@ export const storageService = {
       console.error("Import failed", e);
       return false;
     }
-  }
+  },
+
+  // --- Recycle Bin ---
+  getCurrentUserEmail: (): string => {
+    try {
+      return localStorage.getItem('rinno_user_email') || 'غير معروف';
+    } catch { return 'غير معروف'; }
+  },
+
+  moveToRecycleBin: (type: string, data: any, description: string) => {
+    const bin = storageService.getRecycleBin();
+    bin.unshift({
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
+      type,
+      data: JSON.parse(JSON.stringify(data)),
+      deletedBy: storageService.getCurrentUserEmail(),
+      deletedAt: new Date().toISOString(),
+      description
+    });
+    localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
+  },
+
+  getRecycleBin: (): any[] => {
+    const data = localStorage.getItem(KEYS.RECYCLE_BIN);
+    return data ? JSON.parse(data) : [];
+  },
+
+  restoreFromRecycleBin: (itemId: string): boolean => {
+    const bin = storageService.getRecycleBin();
+    const index = bin.findIndex((i: any) => i.id === itemId);
+    if (index === -1) return false;
+
+    const item = bin[index];
+    let success = false;
+
+    switch (item.type) {
+      case 'customer': {
+        const customers = storageService.getCustomers();
+        if (!customers.find((c: any) => c.id === item.data.id)) {
+          customers.push(item.data);
+          storageService.saveCustomers(customers);
+        }
+        success = true;
+        break;
+      }
+      case 'product': {
+        const products = storageService.getProducts();
+        if (!products.find((p: any) => p.id === item.data.id)) {
+          products.push(item.data);
+          storageService.saveProducts(products);
+        }
+        success = true;
+        break;
+      }
+      case 'invoice': {
+        const invoices = storageService.getInvoices();
+        if (!invoices.find((i: any) => i.id === item.data.id)) {
+          storageService.addInvoice(item.data);
+        }
+        success = true;
+        break;
+      }
+      case 'repayment': {
+        const repayments = storageService.getRepayments();
+        if (!repayments.find((r: any) => r.id === item.data.id)) {
+          storageService.addRepayment(item.data);
+        }
+        success = true;
+        break;
+      }
+      case 'cylinder_transaction': {
+        const txs = storageService.getCylinderTransactions();
+        if (!txs.find((t: any) => t.id === item.data.id)) {
+          storageService.addCylinderTransaction(item.data);
+        }
+        success = true;
+        break;
+      }
+    }
+
+    if (success) {
+      bin.splice(index, 1);
+      localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
+    }
+    return success;
+  },
+
+  restoreMultipleFromRecycleBin: (itemIds: string[]): number => {
+    let restored = 0;
+    for (const id of itemIds) {
+      if (storageService.restoreFromRecycleBin(id)) restored++;
+    }
+    return restored;
+  },
+
+  emptyRecycleBin: () => {
+    localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify([]));
+  },
 };

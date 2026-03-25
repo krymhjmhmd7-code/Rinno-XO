@@ -42,6 +42,10 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
   const [calcOperation, setCalcOperation] = useState<string | null>(null);
   const [calcWaitingForOperand, setCalcWaitingForOperand] = useState(false);
 
+  // Quick Quantity Popup State
+  const [qtyPopup, setQtyPopup] = useState<{productId: string, productName: string} | null>(null);
+  const [qtyInput, setQtyInput] = useState('');
+
   // Auto-select customer if provided
   useEffect(() => {
     if (initialCustomerId) {
@@ -95,6 +99,38 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
         quantity: 1,
       }];
     });
+  };
+
+  const openQtyEditor = (product: Product, e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger addToCart
+    const existing = cart.find(item => item.productId === product.id);
+    setQtyPopup({ productId: product.id, productName: product.name });
+    setQtyInput(existing ? String(existing.quantity) : '1');
+  };
+
+  const confirmQtyPopup = () => {
+    if (!qtyPopup) return;
+    const qty = parseInt(qtyInput) || 1;
+    if (qty < 1) return;
+
+    setCart(prev => {
+      const existing = prev.find(item => item.productId === qtyPopup.productId);
+      if (existing) {
+        return prev.map(item =>
+          item.productId === qtyPopup.productId
+            ? { ...item, quantity: qty }
+            : item
+        );
+      }
+      const product = products.find(p => p.id === qtyPopup.productId);
+      return [...prev, {
+        productId: qtyPopup.productId,
+        productName: product?.name || qtyPopup.productName,
+        quantity: qty,
+      }];
+    });
+    setQtyPopup(null);
+    setQtyInput('');
   };
 
   const removeFromCart = (id: string) => {
@@ -347,8 +383,13 @@ ${itemsList}
                     active:scale-95 touch-manipulation`}
                 >
                   {isInCart && (
-                    <div className="absolute top-2 left-2 bg-primary-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-sm">
-                      {qtyInCart}
+                    <div
+                      onClick={(e) => openQtyEditor(product, e)}
+                      className="absolute top-2 left-2 bg-primary-600 text-white rounded-full min-w-8 h-8 flex items-center justify-center text-sm font-bold shadow-sm cursor-pointer hover:bg-primary-700 transition px-1.5 gap-1"
+                      title="تعديل الكمية"
+                    >
+                      <span>{qtyInCart}</span>
+                      <span className="text-[10px] opacity-75">✎</span>
                     </div>
                   )}
                   <div>
@@ -481,7 +522,20 @@ ${itemsList}
                   <div className="flex items-center gap-3">
                     <div className="flex items-center bg-white rounded-lg border border-gray-200 shadow-sm">
                       <button onClick={() => updateQuantity(item.productId, -1)} className="px-2 py-1 hover:bg-gray-100 font-bold text-lg w-8">-</button>
-                      <span className="px-1 text-lg font-medium w-6 text-center">{item.quantity}</span>
+                      <input
+                        type="number"
+                        className="w-12 text-center text-lg font-medium border-x border-gray-200 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        value={item.quantity}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (val >= 1) {
+                            setCart(prev => prev.map(ci =>
+                              ci.productId === item.productId ? { ...ci, quantity: val } : ci
+                            ));
+                          }
+                        }}
+                        min={1}
+                      />
                       <button onClick={() => updateQuantity(item.productId, 1)} className="px-2 py-1 hover:bg-gray-100 font-bold text-lg w-8">+</button>
                     </div>
                     <button onClick={() => removeFromCart(item.productId)} className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded-lg">
@@ -659,6 +713,54 @@ ${itemsList}
           </div>
         </div>
       </div>
+
+      {/* Quick Quantity Popup */}
+      {qtyPopup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4" onClick={() => setQtyPopup(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg text-gray-800 mb-1 text-center">{qtyPopup.productName}</h3>
+            <p className="text-sm text-gray-500 mb-4 text-center">أدخل الكمية المطلوبة</p>
+            <input
+              type="number"
+              className="w-full text-center text-4xl font-black p-4 border-2 border-primary-300 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              value={qtyInput}
+              onChange={(e) => setQtyInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmQtyPopup(); }}
+              autoFocus
+              min={1}
+            />
+            <div className="grid grid-cols-4 gap-2 mt-4">
+              {[1, 2, 3, 5, 10, 15, 20, 50].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setQtyInput(String(n))}
+                  className={`py-2 rounded-lg font-bold text-sm transition active:scale-95 ${
+                    qtyInput === String(n)
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={confirmQtyPopup}
+                className="flex-1 bg-primary-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-primary-700 transition active:scale-95"
+              >
+                تأكيد ✓
+              </button>
+              <button
+                onClick={() => setQtyPopup(null)}
+                className="bg-gray-200 text-gray-700 px-4 py-3 rounded-xl hover:bg-gray-300 transition"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -23,7 +23,8 @@ import {
   Calculator as CalculatorIcon,
   Search,
   FileText,
-  Phone
+  Phone,
+  Trash2
 } from 'lucide-react';
 
 import { SimpleLogin, ADMIN_EMAIL } from './components/SimpleLogin';
@@ -34,6 +35,7 @@ import { Settings } from './components/Settings';
 import { Debts } from './components/Debts';
 import { CylinderLoans } from './components/CylinderLoans';
 import { Calculator } from './components/Calculator';
+import { RecycleBin } from './components/RecycleBin';
 import { storageService } from './services/storage';
 import { Customer, Product, Invoice, ViewState, Repayment } from './types';
 
@@ -230,6 +232,7 @@ export const App: React.FC = () => {
 
     setUser(newUser);
     localStorage.setItem('rinno_user', JSON.stringify(newUser));
+    localStorage.setItem('rinno_user_email', email);
   };
 
   const handleLogout = () => {
@@ -333,6 +336,7 @@ export const App: React.FC = () => {
           <NavItem view="debts" icon={Wallet} label="الديون" />
           <NavItem view="cylinder_loans" icon={Repeat} label="مداينة الاسطوانات" />
           <NavItem view="calculator" icon={CalculatorIcon} label="الآلة الحاسبة" />
+          <NavItem view="recycle_bin" icon={Trash2} label="سلة المحذوفات" />
           <div className="pt-4 mt-4 border-t border-gray-100">
             <NavItem view="settings" icon={SettingsIcon} label="الإعدادات" />
             <button
@@ -623,6 +627,7 @@ export const App: React.FC = () => {
           {activeView === 'cylinder_loans' && <CylinderLoans customers={customers} products={products} onUpdate={refreshData} initialCustomerId={preSelectedCustomerId} />}
           {activeView === 'settings' && <Settings isAdmin={user?.email === ADMIN_EMAIL} />}
           {activeView === 'calculator' && <Calculator />}
+          {activeView === 'recycle_bin' && <RecycleBin onUpdate={refreshData} />}
         </div>
       </main>
     </div>

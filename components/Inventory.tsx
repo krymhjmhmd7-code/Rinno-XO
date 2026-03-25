@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Product } from '../types';
 import { Plus, Cylinder, Trash2, Snowflake, AlertCircle } from 'lucide-react';
+import { storageService } from '../services/storage';
 
 interface InventoryProps {
   products: Product[];
@@ -14,6 +15,11 @@ export const Inventory: React.FC<InventoryProps> = ({ products, onUpdate }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Product>>({});
   const [errors, setErrors] = useState<{name?: string}>({});
+
+  // Password Protection State
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
 
   const handleSave = () => {
     // Validation
@@ -45,10 +51,34 @@ export const Inventory: React.FC<InventoryProps> = ({ products, onUpdate }) => {
   };
 
   const handleDelete = () => {
-    if (editingId && window.confirm('هل أنت متأكد من حذف هذا النوع نهائياً؟')) {
+    if (!editingId) return;
+    const settings = storageService.getSettings();
+    const delPassword = settings.deletePassword || '1234';
+    setShowDeletePassword(true);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+  };
+
+  const performDelete = () => {
+    if (editingId) {
+      const product = products.find(p => p.id === editingId);
+      if (product) {
+        storageService.moveToRecycleBin('product', product, `نوع: ${product.name} (${product.size})`);
+      }
       onUpdate(products.filter(p => p.id !== editingId));
       setShowModal(false);
       setEditingId(null);
+      setShowDeletePassword(false);
+    }
+  };
+
+  const verifyDeletePassword = () => {
+    const settings = storageService.getSettings();
+    const delPassword = settings.deletePassword || '1234';
+    if (deletePasswordInput === delPassword) {
+      performDelete();
+    } else {
+      setDeletePasswordError('كلمة المرور خاطئة');
     }
   };
 
@@ -161,6 +191,31 @@ export const Inventory: React.FC<InventoryProps> = ({ products, onUpdate }) => {
                   <Trash2 size={20} />
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Prompt Modal */}
+      {showDeletePassword && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
+            <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لحذف هذا النوع نهائياً.</p>
+            <input
+              type="password"
+              className={`w-full p-2 border rounded mb-2 ${deletePasswordError ? 'border-red-500 bg-red-50' : ''}`}
+              placeholder="كلمة المرور"
+              value={deletePasswordInput}
+              onChange={e => {
+                setDeletePasswordInput(e.target.value);
+                setDeletePasswordError('');
+              }}
+            />
+            {deletePasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{deletePasswordError}</p>}
+            <div className="flex gap-2">
+              <button onClick={verifyDeletePassword} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
+              <button onClick={() => setShowDeletePassword(false)} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
             </div>
           </div>
         </div>

@@ -159,18 +159,17 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
   const confirmDelete = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    const settings = storageService.getSettings();
-    if (settings.adminPassword) {
-      setDeleteTargetId(id);
-      setShowPasswordPrompt(true);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      performDelete(id);
-    }
+    setDeleteTargetId(id);
+    setShowPasswordPrompt(true);
+    setPasswordInput('');
+    setPasswordError('');
   };
 
   const performDelete = (id: string) => {
+    const customer = customers.find(c => c.id === id);
+    if (customer) {
+      storageService.moveToRecycleBin('customer', customer, `زبون: ${customer.name} (#${customer.serialNumber})`);
+    }
     onUpdate(customers.filter(c => c.id !== id));
     setShowPasswordPrompt(false);
     setDeleteTargetId(null);
@@ -178,7 +177,8 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
   const checkPasswordAndDelete = () => {
     const settings = storageService.getSettings();
-    if (passwordInput === settings.adminPassword) {
+    const delPassword = settings.deletePassword || '1234';
+    if (passwordInput === delPassword) {
       performDelete(deleteTargetId!);
     } else {
       setPasswordError('كلمة المرور خاطئة');
@@ -413,28 +413,25 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
           <head>
             <title>كشف حساب - ${customer.name}</title>
             <style>
+            <style>
               body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; color: #000; }
-              h1, h2 { text-align: center; margin: 10px 0; color: #000; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #000; }
-              th, td { border: 1px solid #000; padding: 8px; text-align: right; color: #000; }
-              th { background-color: #fff; font-weight: bold; border-bottom: 2px solid #000; }
+              h1, h2 { text-align: center; margin: 10px 0; color: #000; font-weight: bold; font-size: 26px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 2px solid #000; }
+              th, td { border: 2px solid #000; padding: 10px; text-align: right; color: #000; font-size: 15px; }
+              th { background-color: #fff; font-weight: bold; border-bottom: 3px solid #000; }
               .footer { margin-top: 30px; text-align: center; font-weight: bold; }
-              .balance { font-size: 18px; margin-top: 10px; padding: 10px; border: 1px solid #000; display: inline-block; }
+              .balance { font-size: 24px; margin-top: 15px; padding: 15px; border: 3px solid #000; display: inline-block; font-weight: bold; width: 100%; box-sizing: border-box; }
+              .customer-info { margin-top: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; font-weight: bold; font-size: 18px; }
             </style>
           </head>
           <body>
             <h2>كشف حساب زبون</h2>
-            <div style="margin-top: 20px; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
-              <table style="border: none; margin: 0;">
-                <tr style="border: none;">
-                  <td style="border: none; font-weight: bold;">الاسم: ${customer.name} (#${customer.serialNumber})</td>
-                  <td style="border: none; text-align: left;">تاريخ الاستخراج: ${new Date().toLocaleDateString('en-US')}</td>
-                </tr>
-                <tr style="border: none;">
-                  <td style="border: none;">رقم الجوال: ${customer.phone}</td>
-                  <td style="border: none;"></td>
-                </tr>
-              </table>
+            <div class="customer-info">
+              <div style="display: flex; justify-content: space-between;">
+                <span>الاسم: ${customer.name} (#${customer.serialNumber})</span>
+                <span>تاريخ الاستخراج: ${new Date().toLocaleDateString('en-US')}</span>
+              </div>
+              <div style="margin-top: 5px;">رقم الجوال: ${customer.phone}</div>
             </div>
             
             <table>
@@ -457,20 +454,22 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         // Invoice increases debt (Debit)
         return `
                       <tr>
-                        <td>${date}</td>
-                        <td>فاتورة #${inv.id.slice(-6)}</td>
-                        <td>${details}</td>
-                        <td>${inv.totalAmount}</td>
-                        <td>0</td>
+                        <td style="font-weight: bold;">${date}</td>
+                        <td style="font-weight: bold;">
+                           <div>فاتورة #${inv.id.slice(-6)}</div>
+                           <div style="font-size: 12px; margin-top: 5px;">${details}</div>
+                        </td>
+                        <td style="font-weight: bold;">${inv.totalAmount}</td>
+                        <td style="font-weight: bold;">0</td>
                       </tr>
                       ${(inv.paymentDetails.cash + inv.paymentDetails.cheque) > 0 ? `
-                        <tr>
-                          <td>${date}</td>
-                          <td>دفع فوري (فاتورة)</td>
-                          <td>نقد/شيك</td>
-                          <td>0</td>
-                          <td>${inv.paymentDetails.cash + inv.paymentDetails.cheque}</td>
-                        </tr>
+                          <tr style="background-color: #f9f9f9;">
+                            <td style="font-weight: bold;">${date}</td>
+                            <td style="font-weight: bold;">دفع فوري (فاتورة)</td>
+                            <td style="font-weight: bold;">نقد/شيك</td>
+                            <td style="font-weight: bold;">0</td>
+                            <td style="font-weight: bold;">${inv.paymentDetails.cash + inv.paymentDetails.cheque}</td>
+                          </tr>
                       ` : ''}
                      `;
       } else {
@@ -478,11 +477,11 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
         // Repayment decreases debt (Credit)
         return `
                       <tr>
-                        <td>${date}</td>
-                        <td>سند سداد/قبض</td>
-                        <td>${rep.method === 'cash' ? 'نقداً' : 'شيك'} ${rep.note ? ` - ${rep.note}` : ''}</td>
-                        <td>0</td>
-                        <td>${rep.amount}</td>
+                        <td style="font-weight: bold;">${date}</td>
+                        <td style="font-weight: bold;">سند سداد/قبض</td>
+                        <td style="font-weight: bold;">${rep.method === 'cash' ? 'نقداً' : 'شيك'} ${rep.note ? ` - ${rep.note}` : ''}</td>
+                        <td style="font-weight: bold;">0</td>
+                        <td style="font-weight: bold;">${rep.amount}</td>
                       </tr>
                      `;
       }
@@ -833,37 +832,37 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
               direction: 'rtl',
               background: 'white',
               color: 'black',
-              border: '1px solid black',
+              border: '2px solid black',
             }}
           >
-            <div style={{ background: 'white', padding: '12px' }}>
+            <div style={{ background: 'white', padding: '16px' }}>
               {/* Header */}
-              <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '2px solid black', paddingBottom: '12px' }}>
-                <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'black', marginBottom: '4px' }}>كشف حساب زبون</div>
+              <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '3px solid black', paddingBottom: '16px' }}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'black', marginBottom: '4px' }}>كشف حساب زبون</div>
               </div>
 
               {/* Customer Info */}
-              <div style={{ marginBottom: '16px', borderBottom: '1px solid black', paddingBottom: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 'bold' }}>الاسم: {shareHistoryData.customer.name} (#{shareHistoryData.customer.serialNumber})</span>
+              <div style={{ marginBottom: '20px', borderBottom: '2px solid black', paddingBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 'bold' }}>الاسم: {shareHistoryData.customer.name} (#{shareHistoryData.customer.serialNumber})</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '14px' }}>رقم الجوال: {shareHistoryData.customer.phone}</span>
+                  <span style={{ fontSize: '16px', fontWeight: 'bold' }}>رقم الجوال: {shareHistoryData.customer.phone}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                  <span style={{ fontSize: '12px' }}>تاريخ: {new Date().toLocaleDateString('en-US')}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 'bold' }}>تاريخ الاستخراج: {new Date().toLocaleDateString('en-US')}</span>
                 </div>
               </div>
 
               {/* History Items (Last 15) */}
-              <div style={{ marginBottom: '16px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                   <thead>
                     <tr>
-                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>التاريخ</th>
-                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>التفاصيل</th>
-                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>عليه</th>
-                      <th style={{ border: '1px solid black', padding: '6px', textAlign: 'right' }}>له</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>التاريخ</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>التفاصيل</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>عليه</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>له</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -877,22 +876,22 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
                         return (
                           <React.Fragment key={idx}>
                             <tr>
-                              <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
-                              <td style={{ border: '1px solid black', padding: '6px' }}>
-                                <div>فاتورة #{inv.id.slice(-6)}</div>
-                                <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
+                              <td style={{ border: '2px solid black', padding: '8px' }}>
+                                <div style={{ fontWeight: 'bold' }}>فاتورة #{inv.id.slice(-6)}</div>
+                                <div style={{ fontSize: '12px', color: 'black', fontWeight: 'bold', marginTop: '4px' }}>
                                   {inv.items.map(i => `${i.productName} (${i.quantity})`).join(' | ')}
                                 </div>
                               </td>
-                              <td style={{ border: '1px solid black', padding: '6px' }}>{debt}</td>
-                              <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{debt}</td>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
                             </tr>
                             {paid > 0 && (
                               <tr>
-                                <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
-                                <td style={{ border: '1px solid black', padding: '6px' }}>سداد فوري</td>
-                                <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
-                                <td style={{ border: '1px solid black', padding: '6px' }}>{paid}</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>سداد فوري</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{paid}</td>
                               </tr>
                             )}
                           </React.Fragment>
@@ -901,10 +900,10 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
                         const rep = item as Repayment;
                         return (
                           <tr key={idx}>
-                            <td style={{ border: '1px solid black', padding: '6px' }}>{date}</td>
-                            <td style={{ border: '1px solid black', padding: '6px' }}>سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</td>
-                            <td style={{ border: '1px solid black', padding: '6px' }}>0</td>
-                            <td style={{ border: '1px solid black', padding: '6px' }}>{rep.amount}</td>
+                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
+                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</td>
+                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
+                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{rep.amount}</td>
                           </tr>
                         );
                       }
@@ -919,9 +918,9 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
               </div>
 
               {/* Balance */}
-              <div style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
-                <div>الرصيد الحالي النهائي</div>
-                <div style={{ fontSize: '18px', marginTop: '4px' }}>
+              <div style={{ border: '3px solid black', padding: '16px', textAlign: 'center', fontWeight: 'bold' }}>
+                <div style={{ fontSize: '18px' }}>الرصيد الحالي النهائي</div>
+                <div style={{ fontSize: '28px', marginTop: '8px' }}>
                   {shareHistoryData.customer.balance > 0 ?
                     `${shareHistoryData.customer.balance} (عليه)` :
                     `${Math.abs(shareHistoryData.customer.balance)} (له)`}

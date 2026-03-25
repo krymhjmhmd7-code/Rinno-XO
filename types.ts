@@ -60,6 +60,15 @@ export interface Repayment {
   note?: string;
 }
 
+export interface DeletedItem {
+  id: string;
+  type: 'customer' | 'invoice' | 'repayment' | 'cylinder_transaction' | 'product';
+  data: any;
+  deletedBy: string;
+  deletedAt: string;
+  description: string;
+}
+
 export interface CylinderTransaction {
   id: string;
   customerId: string;
@@ -89,9 +98,12 @@ export interface AppSettings {
   // Legacy Google Sheets
   spreadsheetId?: string;
   needsSync?: boolean;
+
+  // Delete Protection
+  deletePassword?: string; // Default: '1234'
 }
 
-export type ViewState = 'dashboard' | 'customers' | 'inventory' | 'sales' | 'debts' | 'cylinder_loans' | 'reports' | 'settings' | 'calculator';
+export type ViewState = 'dashboard' | 'customers' | 'inventory' | 'sales' | 'debts' | 'cylinder_loans' | 'reports' | 'settings' | 'calculator' | 'recycle_bin';
 
 // Add UserProfile interface to fix the error in components/Login.tsx
 export interface UserProfile {

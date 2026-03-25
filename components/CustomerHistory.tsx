@@ -1,6 +1,7 @@
 import React from 'react';
 import { Customer, Product, Invoice, Repayment } from '../types';
 import { History, X, Printer, Share2, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { storageService } from '../services/storage';
 
 // Union type for History Items
 type HistoryItem = (Invoice | Repayment) & { type: 'invoice' | 'repayment' };
@@ -37,6 +38,12 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     const [editDate, setEditDate] = React.useState('');
     const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
 
+    // Password Protection State
+    const [showDeletePassword, setShowDeletePassword] = React.useState(false);
+    const [deletePasswordInput, setDeletePasswordInput] = React.useState('');
+    const [deletePasswordError, setDeletePasswordError] = React.useState('');
+    const [pendingDeleteItem, setPendingDeleteItem] = React.useState<{type: 'invoice' | 'repayment', id: string} | null>(null);
+
     const handleStartEdit = (item: HistoryItem) => {
         setEditingId(item.id);
         const dateStr = new Date(item.date).toISOString().split('T')[0]; // YYYY-MM-DD
@@ -60,8 +67,27 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     };
 
     const handleConfirmDelete = (type: 'invoice' | 'repayment', id: string) => {
-        onDeleteTransaction(type, id, customer.id);
-        setConfirmDeleteId(null);
+        const settings = storageService.getSettings();
+        const delPassword = settings.deletePassword || '1234';
+        setPendingDeleteItem({ type, id });
+        setShowDeletePassword(true);
+        setDeletePasswordInput('');
+        setDeletePasswordError('');
+    };
+
+    const verifyPasswordAndDelete = () => {
+        const settings = storageService.getSettings();
+        const delPassword = settings.deletePassword || '1234';
+        if (deletePasswordInput === delPassword) {
+            if (pendingDeleteItem) {
+                onDeleteTransaction(pendingDeleteItem.type, pendingDeleteItem.id, customer.id);
+            }
+            setShowDeletePassword(false);
+            setPendingDeleteItem(null);
+            setConfirmDeleteId(null);
+        } else {
+            setDeletePasswordError('كلمة المرور خاطئة');
+        }
     };
     const calculatedBalance = history.reduce((acc, item) => {
         if (item.type === 'invoice') {
@@ -257,6 +283,30 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                     </table>
                 </div>
             </div>
+            {/* Password Prompt Modal */}
+            {showDeletePassword && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+                        <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
+                        <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لإتمام الحذف.</p>
+                        <input
+                            type="password"
+                            className={`w-full p-2 border rounded mb-2 ${deletePasswordError ? 'border-red-500 bg-red-50' : ''}`}
+                            placeholder="كلمة المرور"
+                            value={deletePasswordInput}
+                            onChange={e => {
+                                setDeletePasswordInput(e.target.value);
+                                setDeletePasswordError('');
+                            }}
+                        />
+                        {deletePasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{deletePasswordError}</p>}
+                        <div className="flex gap-2">
+                            <button onClick={verifyPasswordAndDelete} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
+                            <button onClick={() => { setShowDeletePassword(false); setConfirmDeleteId(null); }} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
