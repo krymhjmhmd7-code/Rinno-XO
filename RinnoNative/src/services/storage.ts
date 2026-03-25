@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Customer, Product, Invoice, Repayment, CylinderTransaction, AppSettings, DeletedItem } from '../types';
+import { Customer, Product, Invoice, Repayment, CylinderTransaction, AppSettings } from '../types';
 
 const KEYS = {
     CUSTOMERS: 'rinno_customers',
@@ -9,7 +9,6 @@ const KEYS = {
     CYLINDER_TRANSACTIONS: 'rinno_cylinder_transactions',
     SETTINGS: 'rinno_settings',
     CUSTOMER_TYPES: 'rinno_customer_types',
-    RECYCLE_BIN: 'rinno_recycle_bin',
 };
 
 class StorageService {
@@ -90,115 +89,7 @@ class StorageService {
         await AsyncStorage.setItem(KEYS.CUSTOMER_TYPES, JSON.stringify(types));
     }
 
-    // --- Recycle Bin ---
-    async getRecycleBin(): Promise<DeletedItem[]> {
-        const data = await AsyncStorage.getItem(KEYS.RECYCLE_BIN);
-        return data ? JSON.parse(data) : [];
-    }
-
-    async moveToRecycleBin(type: DeletedItem['type'], data: any, description: string): Promise<void> {
-        const bin = await this.getRecycleBin();
-        bin.unshift({
-            id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
-            type,
-            data: JSON.parse(JSON.stringify(data)),
-            deletedBy: 'تطبيق الموبايل',
-            deletedAt: new Date().toISOString(),
-            description,
-        });
-        await AsyncStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
-    }
-
-    async restoreFromRecycleBin(itemId: string): Promise<boolean> {
-        const bin = await this.getRecycleBin();
-        const index = bin.findIndex(i => i.id === itemId);
-        if (index === -1) return false;
-
-        const item = bin[index];
-        let success = false;
-
-        switch (item.type) {
-            case 'customer': {
-                const customers = await this.getCustomers();
-                if (!customers.find(c => c.id === item.data.id)) {
-                    customers.push(item.data);
-                    await this.saveCustomers(customers);
-                }
-                success = true;
-                break;
-            }
-            case 'product': {
-                const products = await this.getProducts();
-                if (!products.find(p => p.id === item.data.id)) {
-                    products.push(item.data);
-                    await this.saveProducts(products);
-                }
-                success = true;
-                break;
-            }
-            case 'invoice': {
-                const invoices = await this.getInvoices();
-                if (!invoices.find(i => i.id === item.data.id)) {
-                    invoices.unshift(item.data);
-                    await this.saveInvoices(invoices);
-                    // Restore customer balance
-                    const customers = await this.getCustomers();
-                    const ci = customers.findIndex(c => c.id === item.data.customerId);
-                    if (ci !== -1) {
-                        customers[ci].balance = (customers[ci].balance || 0) + (item.data.paymentDetails?.debt || 0);
-                        customers[ci].totalPurchases = (customers[ci].totalPurchases || 0) + item.data.totalAmount;
-                        await this.saveCustomers(customers);
-                    }
-                }
-                success = true;
-                break;
-            }
-            case 'repayment': {
-                const repayments = await this.getRepayments();
-                if (!repayments.find(r => r.id === item.data.id)) {
-                    repayments.unshift(item.data);
-                    await this.saveRepayments(repayments);
-                    const customers = await this.getCustomers();
-                    const ci = customers.findIndex(c => c.id === item.data.customerId);
-                    if (ci !== -1) {
-                        customers[ci].balance = (customers[ci].balance || 0) - item.data.amount;
-                        await this.saveCustomers(customers);
-                    }
-                }
-                success = true;
-                break;
-            }
-            case 'cylinder_transaction': {
-                const txs = await this.getCylinderTransactions();
-                if (!txs.find(t => t.id === item.data.id)) {
-                    txs.unshift(item.data);
-                    await this.saveCylinderTransactions(txs);
-                }
-                success = true;
-                break;
-            }
-        }
-
-        if (success) {
-            bin.splice(index, 1);
-            await AsyncStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
-        }
-        return success;
-    }
-
-    async restoreMultiple(itemIds: string[]): Promise<number> {
-        let restored = 0;
-        for (const id of itemIds) {
-            if (await this.restoreFromRecycleBin(id)) restored++;
-        }
-        return restored;
-    }
-
-    async emptyRecycleBin(): Promise<void> {
-        await AsyncStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify([]));
-    }
-
-    // Recalculate all customer balances
+    // Recalculate all customer balances from invoices and repayments
     async recalculateCustomerBalances(): Promise<void> {
         const customers = await this.getCustomers();
         const invoices = await this.getInvoices();
@@ -207,10 +98,12 @@ class StorageService {
         let hasChanges = false;
 
         const updatedCustomers = customers.map(customer => {
+            // Calculate balance from invoices (debt amounts only)
             const invoiceDebt = invoices
                 .filter(inv => inv.customerId === customer.id)
                 .reduce((sum, inv) => sum + (inv.paymentDetails?.debt || 0), 0);
 
+            // Calculate payments from repayments
             const totalRepayments = repayments
                 .filter(rep => rep.customerId === customer.id)
                 .reduce((sum, rep) => sum + rep.amount, 0);
@@ -218,6 +111,7 @@ class StorageService {
             const correctBalance = invoiceDebt - totalRepayments;
 
             if (customer.balance !== correctBalance) {
+                console.log(`Correcting balance for ${customer.name}: ${customer.balance} -> ${correctBalance}`);
                 hasChanges = true;
                 return { ...customer, balance: correctBalance };
             }
@@ -226,6 +120,7 @@ class StorageService {
 
         if (hasChanges) {
             await this.saveCustomers(updatedCustomers);
+            console.log('Customer balances recalculated and corrected.');
         }
     }
 }

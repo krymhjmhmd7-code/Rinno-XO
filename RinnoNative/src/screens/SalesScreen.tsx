@@ -7,16 +7,11 @@ import {
     TextInput,
     ScrollView,
     Alert,
-    Modal,
-    Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
 import { storageService } from '../services/storage';
 import { Customer, Product, Invoice, CartItem, PaymentDetails } from '../types';
-
-const { width } = Dimensions.get('window');
-const QUICK_QTYS = [1, 2, 3, 5, 10, 15, 20, 50];
 
 export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
     const [customers, setCustomers] = useState<Customer[]>([]);
@@ -24,10 +19,6 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [cart, setCart] = useState<CartItem[]>([]);
     const [payment, setPayment] = useState({ cash: '', cheque: '' });
-
-    // Quick Quantity Popup
-    const [qtyPopup, setQtyPopup] = useState<{ productId: string; productName: string } | null>(null);
-    const [qtyInput, setQtyInput] = useState('');
 
     useEffect(() => {
         loadData();
@@ -57,27 +48,6 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
         }
     };
 
-    const openQtyEditor = (product: Product) => {
-        const existing = cart.find(c => c.productId === product.id);
-        setQtyPopup({ productId: product.id, productName: product.name });
-        setQtyInput(existing ? String(existing.quantity) : '1');
-    };
-
-    const confirmQtyPopup = () => {
-        if (!qtyPopup) return;
-        const qty = parseInt(qtyInput) || 1;
-        if (qty < 1) return;
-
-        const existing = cart.find(c => c.productId === qtyPopup.productId);
-        if (existing) {
-            setCart(cart.map(c => c.productId === qtyPopup.productId ? { ...c, quantity: qty } : c));
-        } else {
-            setCart([...cart, { productId: qtyPopup.productId, productName: qtyPopup.productName, quantity: qty }]);
-        }
-        setQtyPopup(null);
-        setQtyInput('');
-    };
-
     const updateQuantity = (productId: string, qty: number) => {
         if (qty <= 0) {
             setCart(cart.filter(c => c.productId !== productId));
@@ -87,7 +57,8 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     };
 
     const totalAmount = cart.reduce((sum, item) => {
-        return sum + item.quantity * 50; // Default price
+        const product = products.find(p => p.id === item.productId);
+        return sum + (product ? item.quantity * 50 : 0); // Default price 50
     }, 0);
 
     const cashAmount = parseInt(payment.cash) || 0;
@@ -124,9 +95,11 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
             status: debtAmount > 0 ? 'debt' : 'paid',
         };
 
+        // Save invoice
         const invoices = await storageService.getInvoices();
-        await storageService.saveInvoices([invoice, ...invoices]);
+        await storageService.saveInvoices([...invoices, invoice]);
 
+        // Update customer balance
         const updatedCustomers = customers.map(c =>
             c.id === selectedCustomerId
                 ? { ...c, balance: c.balance + debtAmount, totalPurchases: c.totalPurchases + totalAmount }
@@ -166,31 +139,17 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                     </View>
                 </View>
 
-                {/* Products - Tap to +1, Long press to edit qty */}
+                {/* Products */}
                 <View style={styles.section}>
-                    <Text style={styles.label}>المنتجات (اضغط للإضافة، اضغط مطولاً لتحديد الكمية)</Text>
-                    <View style={styles.productsGrid}>
-                        {products.map(product => {
-                            const inCart = cart.find(c => c.productId === product.id);
-                            return (
-                                <TouchableOpacity
-                                    key={product.id}
-                                    style={[styles.productCard, inCart && styles.productCardActive]}
-                                    onPress={() => addToCart(product)}
-                                    onLongPress={() => openQtyEditor(product)}
-                                    activeOpacity={0.7}
-                                >
-                                    {inCart && (
-                                        <View style={styles.qtyBadge}>
-                                            <Text style={styles.qtyBadgeText}>{inCart.quantity}</Text>
-                                        </View>
-                                    )}
-                                    <Text style={styles.productCardName}>{product.name}</Text>
-                                    <Text style={styles.productCardSize}>{product.size}</Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
+                    <Text style={styles.label}>المنتجات</Text>
+                    {products.map(product => (
+                        <View key={product.id} style={styles.productRow}>
+                            <TouchableOpacity style={styles.addProductBtn} onPress={() => addToCart(product)}>
+                                <Text style={styles.addProductBtnText}>+</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.productName}>{product.name}</Text>
+                        </View>
+                    ))}
                 </View>
 
                 {/* Cart */}
@@ -203,15 +162,7 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                                     <TouchableOpacity onPress={() => updateQuantity(item.productId, item.quantity - 1)} style={styles.qtyBtn}>
                                         <Text style={styles.qtyBtnText}>-</Text>
                                     </TouchableOpacity>
-                                    <TextInput
-                                        style={styles.qtyInputField}
-                                        value={String(item.quantity)}
-                                        onChangeText={text => {
-                                            const val = parseInt(text);
-                                            if (val >= 1) updateQuantity(item.productId, val);
-                                        }}
-                                        keyboardType="numeric"
-                                    />
+                                    <Text style={styles.qtyText}>{item.quantity}</Text>
                                     <TouchableOpacity onPress={() => updateQuantity(item.productId, item.quantity + 1)} style={styles.qtyBtn}>
                                         <Text style={styles.qtyBtnText}>+</Text>
                                     </TouchableOpacity>
@@ -246,50 +197,11 @@ export const SalesScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                         المتبقي (دين): {debtAmount} شيكل
                     </Text>
                 </View>
-
-                <View style={{ height: 100 }} />
             </ScrollView>
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
                 <Text style={styles.saveBtnText}>حفظ الفاتورة</Text>
             </TouchableOpacity>
-
-            {/* Quick Quantity Modal */}
-            <Modal visible={!!qtyPopup} transparent animationType="fade">
-                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setQtyPopup(null)}>
-                    <View style={styles.qtyModal} onStartShouldSetResponder={() => true}>
-                        <Text style={styles.qtyModalTitle}>{qtyPopup?.productName}</Text>
-                        <Text style={styles.qtyModalSubtitle}>أدخل الكمية المطلوبة</Text>
-                        <TextInput
-                            style={styles.qtyModalInput}
-                            value={qtyInput}
-                            onChangeText={setQtyInput}
-                            keyboardType="numeric"
-                            autoFocus
-                            onSubmitEditing={confirmQtyPopup}
-                        />
-                        <View style={styles.quickQtyRow}>
-                            {QUICK_QTYS.map(n => (
-                                <TouchableOpacity
-                                    key={n}
-                                    style={[styles.quickQtyBtn, qtyInput === String(n) && styles.quickQtyBtnActive]}
-                                    onPress={() => setQtyInput(String(n))}
-                                >
-                                    <Text style={[styles.quickQtyBtnText, qtyInput === String(n) && styles.quickQtyBtnTextActive]}>{n}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                        <View style={styles.qtyModalActions}>
-                            <TouchableOpacity style={styles.qtyConfirmBtn} onPress={confirmQtyPopup}>
-                                <Text style={styles.qtyConfirmBtnText}>تأكيد ✓</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.qtyCancelBtn} onPress={() => setQtyPopup(null)}>
-                                <Text style={styles.qtyCancelBtnText}>إلغاء</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            </Modal>
         </SafeAreaView>
     );
 };
@@ -301,90 +213,23 @@ const styles = StyleSheet.create({
     title: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
     content: { flex: 1, padding: 16 },
     section: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16 },
-    label: { fontSize: 14, fontWeight: 'bold', color: '#374151', marginBottom: 12, textAlign: 'right' },
+    label: { fontSize: 16, fontWeight: 'bold', color: '#374151', marginBottom: 12, textAlign: 'right' },
     pickerContainer: { backgroundColor: '#f3f4f6', borderRadius: 8 },
     picker: { height: 50 },
-    // Product Grid
-    productsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
-    productCard: {
-        width: (width - 80) / 2,
-        backgroundColor: '#fff',
-        borderWidth: 1.5,
-        borderColor: '#e5e7eb',
-        borderRadius: 12,
-        padding: 16,
-        alignItems: 'flex-end',
-        minHeight: 90,
-        justifyContent: 'center',
-    },
-    productCardActive: {
-        backgroundColor: '#eff6ff',
-        borderColor: '#3b82f6',
-        borderWidth: 2,
-    },
-    productCardName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937', textAlign: 'right' },
-    productCardSize: { fontSize: 13, color: '#6b7280', marginTop: 4, textAlign: 'right' },
-    qtyBadge: {
-        position: 'absolute',
-        top: -8,
-        left: -8,
-        backgroundColor: '#3b82f6',
-        borderRadius: 14,
-        minWidth: 28,
-        height: 28,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 6,
-    },
-    qtyBadgeText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
-    // Cart
-    cartRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-    cartItemName: { fontSize: 15, color: '#374151', fontWeight: '600' },
-    qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    qtyBtn: { backgroundColor: '#e5e7eb', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    qtyBtnText: { fontSize: 20, fontWeight: 'bold', color: '#374151' },
-    qtyInputField: {
-        width: 50,
-        height: 36,
-        borderWidth: 1,
-        borderColor: '#d1d5db',
-        borderRadius: 8,
-        textAlign: 'center',
-        fontSize: 16,
-        fontWeight: 'bold',
-        backgroundColor: '#fff',
-        padding: 0,
-    },
+    productRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+    productName: { fontSize: 16, color: '#1f2937' },
+    addProductBtn: { backgroundColor: '#3b82f6', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    addProductBtnText: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+    cartRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
+    cartItemName: { fontSize: 14, color: '#374151' },
+    qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    qtyBtn: { backgroundColor: '#e5e7eb', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    qtyBtnText: { fontSize: 18, fontWeight: 'bold' },
+    qtyText: { fontSize: 16, fontWeight: 'bold', minWidth: 30, textAlign: 'center' },
     total: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', textAlign: 'center', marginTop: 12, padding: 12, backgroundColor: '#dbeafe', borderRadius: 8 },
-    input: { backgroundColor: '#f3f4f6', padding: 14, borderRadius: 8, marginBottom: 12, textAlign: 'right', fontSize: 16 },
+    input: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 8, marginBottom: 12, textAlign: 'right', fontSize: 16 },
     debtText: { textAlign: 'center', fontSize: 16 },
     debtWarning: { color: '#dc2626', fontWeight: 'bold' },
     saveBtn: { backgroundColor: '#3b82f6', padding: 16, margin: 16, borderRadius: 12, alignItems: 'center' },
     saveBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-    // Quantity Modal
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-    qtyModal: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 320, alignItems: 'center' },
-    qtyModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 4 },
-    qtyModalSubtitle: { fontSize: 14, color: '#6b7280', marginBottom: 16 },
-    qtyModalInput: {
-        width: '100%',
-        textAlign: 'center',
-        fontSize: 36,
-        fontWeight: '900',
-        padding: 16,
-        borderWidth: 2,
-        borderColor: '#93c5fd',
-        borderRadius: 12,
-        color: '#1f2937',
-    },
-    quickQtyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16, justifyContent: 'center' },
-    quickQtyBtn: { backgroundColor: '#f3f4f6', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 },
-    quickQtyBtnActive: { backgroundColor: '#3b82f6' },
-    quickQtyBtnText: { fontSize: 14, fontWeight: 'bold', color: '#374151' },
-    quickQtyBtnTextActive: { color: '#fff' },
-    qtyModalActions: { flexDirection: 'row', gap: 10, marginTop: 16, width: '100%' },
-    qtyConfirmBtn: { flex: 1, backgroundColor: '#3b82f6', padding: 14, borderRadius: 12, alignItems: 'center' },
-    qtyConfirmBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-    qtyCancelBtn: { backgroundColor: '#e5e7eb', paddingHorizontal: 20, padding: 14, borderRadius: 12, alignItems: 'center' },
-    qtyCancelBtnText: { color: '#374151', fontSize: 14 },
 });

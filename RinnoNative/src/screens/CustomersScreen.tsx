@@ -25,11 +25,6 @@ export const CustomersScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         type: 'غير مصنف',
     });
 
-    // Delete password modal state
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-    const [deletePasswordInput, setDeletePasswordInput] = useState('');
-
     const loadCustomers = async () => {
         const data = await storageService.getCustomers();
         setCustomers(data);
@@ -81,27 +76,18 @@ export const CustomersScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     };
 
     const handleDelete = (id: string) => {
-        setDeleteTargetId(id);
-        setDeletePasswordInput('');
-        setShowDeleteModal(true);
-    };
-
-    const verifyDeletePassword = async () => {
-        const settings = await storageService.getSettings();
-        const delPassword = settings.deletePassword || '1234';
-        if (deletePasswordInput === delPassword) {
-            const customer = customers.find(c => c.id === deleteTargetId);
-            if (customer) {
-                await storageService.moveToRecycleBin('customer', customer, `زبون: ${customer.name} (#${customer.serialNumber})`);
-            }
-            const updated = customers.filter(c => c.id !== deleteTargetId);
-            await storageService.saveCustomers(updated);
-            setCustomers(updated);
-            setShowDeleteModal(false);
-            setDeleteTargetId(null);
-        } else {
-            Alert.alert('خطأ', 'كلمة المرور خاطئة');
-        }
+        Alert.alert('تأكيد الحذف', 'هل أنت متأكد من حذف هذا الزبون؟', [
+            { text: 'إلغاء', style: 'cancel' },
+            {
+                text: 'حذف',
+                style: 'destructive',
+                onPress: async () => {
+                    const updated = customers.filter(c => c.id !== id);
+                    await storageService.saveCustomers(updated);
+                    setCustomers(updated);
+                },
+            },
+        ]);
     };
 
     const openAdd = () => {
@@ -202,34 +188,6 @@ export const CustomersScreen: React.FC<{ navigation: any }> = ({ navigation }) =
                                 <Text style={styles.saveBtnText}>حفظ</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}>
-                                <Text style={styles.cancelBtnText}>إلغاء</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Delete Password Modal */}
-            <Modal visible={showDeleteModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modal}>
-                        <Text style={styles.modalTitle}>🔒 تأكيد الحذف</Text>
-                        <Text style={{ textAlign: 'center', color: '#6b7280', marginBottom: 16 }}>أدخل كلمة مرور الحذف</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="كلمة المرور"
-                            value={deletePasswordInput}
-                            onChangeText={setDeletePasswordInput}
-                            secureTextEntry
-                            keyboardType="numeric"
-                            autoFocus
-                            placeholderTextColor="#9ca3af"
-                        />
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#dc2626' }]} onPress={verifyDeletePassword}>
-                                <Text style={styles.saveBtnText}>حذف</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowDeleteModal(false)}>
                                 <Text style={styles.cancelBtnText}>إلغاء</Text>
                             </TouchableOpacity>
                         </View>
