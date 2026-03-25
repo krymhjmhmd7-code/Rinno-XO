@@ -70,6 +70,19 @@ export interface CylinderTransaction {
     note?: string;
 }
 
+export interface DeletedItem {
+    id: string;
+    type: 'customer' | 'invoice' | 'repayment' | 'cylinder_transaction' | 'product';
+    data: any;
+    deletedBy: string;
+    deletedAt: string;
+    description: string;
+}
+
 export interface AppSettings {
     adminPassword?: string;
+    deletePassword?: string; // Default: '1234'
+    allowedEmails?: string[];
+    adminEmail?: string;
+    lastBackupDate?: string;
 }

@@ -141,6 +141,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
                     >
                         <Text style={styles.quickBtnText}>سجل الزبائن</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.quickBtn, { backgroundColor: '#ef4444' }]}
+                        onPress={() => navigation.navigate('RecycleBin')}
+                    >
+                        <Text style={styles.quickBtnText}>🗑️ سلة المحذوفات</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.quickBtn, { backgroundColor: '#6b7280' }]}
+                        onPress={() => navigation.navigate('Settings')}
+                    >
+                        <Text style={styles.quickBtnText}>⚙️ الإعدادات</Text>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Search */}

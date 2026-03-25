@@ -10,6 +10,7 @@ import { SalesScreen } from './src/screens/SalesScreen';
 import { DebtsScreen } from './src/screens/DebtsScreen';
 import { CylinderLoansScreen } from './src/screens/CylinderLoansScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { RecycleBinScreen } from './src/screens/RecycleBinScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +31,7 @@ function App(): React.JSX.Element {
           <Stack.Screen name="Debts" component={DebtsScreen} />
           <Stack.Screen name="CylinderLoans" component={CylinderLoansScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="RecycleBin" component={RecycleBinScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
