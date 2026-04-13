@@ -60,15 +60,26 @@ export const captureAndShare = async (
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 1.0));
       if (blob) {
         const file = new File([blob], fileName, { type: 'image/png' });
-        // Check if browser explicitly supports sharing files
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title,
-            text,
-            files: [file]
-          });
+        if (navigator.share) {
+          try {
+            // محاولة إجبار المتصفح على فتح القائمة مع ملف الصورة
+            await navigator.share({
+              title,
+              text,
+              files: [file]
+            });
+          } catch (shareErr: any) {
+            // إذا ألغى المستخدم المشاركة، نتجاهل
+            if (shareErr.name === 'AbortError') return;
+            
+            // إذا فشل المتصفح في مشاركة الملف (زي بعض متصفحات الكمبيوتر)
+            // ننزل الصورة ثم نفتح قائمة التطبيقات للمشاركة النصية
+            console.error('File share failed, falling back:', shareErr);
+            await downloadFallback();
+            await navigator.share({ title, text }).catch(e => console.error(e));
+          }
         } else {
-          // If browser doesn't support file sharing, download it directly
+          // إذا كان المتصفح القديم جداً لا يدعم المشاركة إطلاقاً
           await downloadFallback();
         }
       }
