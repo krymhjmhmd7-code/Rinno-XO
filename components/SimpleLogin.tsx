@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { Flame, LogIn, Mail, Shield } from 'lucide-react';
+import { storageService } from '../services/storage';
 
 // Admin email - the only email allowed to access when list is empty
 const ADMIN_EMAIL = 'krymhjmhmd7@gmail.com';
 
 interface SimpleLoginProps {
     onLoginSuccess: (email: string) => void;
-    allowedEmails: string[];
 }
 
-export const SimpleLogin: React.FC<SimpleLoginProps> = ({ onLoginSuccess, allowedEmails }) => {
+export const SimpleLogin: React.FC<SimpleLoginProps> = ({ onLoginSuccess }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -37,20 +37,7 @@ export const SimpleLogin: React.FC<SimpleLoginProps> = ({ onLoginSuccess, allowe
         }
 
         // 2. Load Settings for Auth Logic
-        // We need to dynamic import storage service or pass it as prop, best to import here to avoid circular dep issues in some architectures, 
-        // but storage is standard. Let's assume global storage or import it.
-        // Since SimpleLogin is a component, we can use the imported storageService from App.tsx context or import it directly.
-        // We will do a dynamic import to be safe / consistent with other patterns used here, or better just import it at top. 
-        // NOTE: The previous view of this file did NOT show storageService import. I will add it or assume it needs to be imported.
-        // Actually, let's use the one that should be imported. I'll add the import in a separate step if needed, 
-        // but for now I will assume I can access it via the existing import pattern if I add it.
-        // Wait, I see I can probably just import it at the top. 
-        // Let's modify the imports first in a separate Tool call if it's missing?
-        // No, I will include the import in the `replace_file_content` if I can target the top, OR
-        // I will use `await import('../services/storage')` inside the function.
-
         try {
-            const { storageService } = await import('../services/storage');
             const settings = storageService.getSettings();
 
             // 3. Verify Password

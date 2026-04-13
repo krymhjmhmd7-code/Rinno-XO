@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Customer, CartItem, Invoice } from '../types';
 import { ShoppingCart, Trash2, CheckCircle, MessageCircle, Search, ChevronDown, Banknote, ScrollText, ArrowLeft, ArrowRight, LayoutGrid, CreditCard, Calculator, X } from 'lucide-react';
+import { CalculatorModal } from './CalculatorModal';
+import { QuantityModal } from './QuantityModal';
 
 interface SalesProps {
   products: Product[];
@@ -16,7 +18,19 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
   const [mobileTab, setMobileTab] = useState<'products' | 'cart'>('products');
 
   // Cart State
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('rinno_draft_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  // Save cart to local storage
+  useEffect(() => {
+    localStorage.setItem('rinno_draft_cart', JSON.stringify(cart));
+  }, [cart]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   // Customer Search State
@@ -37,10 +51,6 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
 
   // Mini Calculator State
   const [showMiniCalc, setShowMiniCalc] = useState(false);
-  const [calcDisplay, setCalcDisplay] = useState('0');
-  const [calcPrevValue, setCalcPrevValue] = useState<string | null>(null);
-  const [calcOperation, setCalcOperation] = useState<string | null>(null);
-  const [calcWaitingForOperand, setCalcWaitingForOperand] = useState(false);
 
   // Quick Quantity Popup State
   const [qtyPopup, setQtyPopup] = useState<{productId: string, productName: string} | null>(null);
@@ -147,7 +157,7 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
     }));
   };
 
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const totalItems = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
 
   // Calculate Debt/Credit automatically based on Manual Total
   const remainingDebt = manualTotal - cashAmount - chequeAmount;
@@ -170,89 +180,7 @@ export const Sales: React.FC<SalesProps> = ({ products, customers, onCompleteSal
     return `${Math.abs(bal)} (له)`;
   };
 
-  // Mini Calculator Functions
-  const calcInputDigit = (digit: string) => {
-    if (calcWaitingForOperand) {
-      setCalcDisplay(digit);
-      setCalcWaitingForOperand(false);
-    } else {
-      setCalcDisplay(calcDisplay === '0' ? digit : calcDisplay + digit);
-    }
-  };
-
-  const calcInputDecimal = () => {
-    if (calcWaitingForOperand) {
-      setCalcDisplay('0.');
-      setCalcWaitingForOperand(false);
-    } else if (!calcDisplay.includes('.')) {
-      setCalcDisplay(calcDisplay + '.');
-    }
-  };
-
-  const calcClear = () => {
-    setCalcDisplay('0');
-    setCalcPrevValue(null);
-    setCalcOperation(null);
-    setCalcWaitingForOperand(false);
-  };
-
-  const calcPerformOperation = (nextOperation: string) => {
-    const inputValue = parseFloat(calcDisplay);
-
-    if (calcPrevValue === null) {
-      setCalcPrevValue(calcDisplay);
-    } else if (calcOperation) {
-      const currentValue = parseFloat(calcPrevValue);
-      let result: number;
-
-      switch (calcOperation) {
-        case '+': result = currentValue + inputValue; break;
-        case '-': result = currentValue - inputValue; break;
-        case '×': result = currentValue * inputValue; break;
-        case '÷': result = inputValue !== 0 ? currentValue / inputValue : 0; break;
-        default: result = inputValue;
-      }
-
-      const resultString = String(parseFloat(result.toFixed(10)));
-      setCalcDisplay(resultString);
-      setCalcPrevValue(resultString);
-    }
-
-    setCalcWaitingForOperand(true);
-    setCalcOperation(nextOperation);
-  };
-
-  const calcCalculate = () => {
-    if (!calcOperation || calcPrevValue === null) return;
-
-    const inputValue = parseFloat(calcDisplay);
-    const currentValue = parseFloat(calcPrevValue);
-    let result: number;
-
-    switch (calcOperation) {
-      case '+': result = currentValue + inputValue; break;
-      case '-': result = currentValue - inputValue; break;
-      case '×': result = currentValue * inputValue; break;
-      case '÷': result = inputValue !== 0 ? currentValue / inputValue : 0; break;
-      default: result = inputValue;
-    }
-
-    const resultString = String(parseFloat(result.toFixed(10)));
-    setCalcDisplay(resultString);
-    setCalcPrevValue(null);
-    setCalcOperation(null);
-    setCalcWaitingForOperand(true);
-  };
-
-  const handleCalcOK = () => {
-    const value = parseFloat(calcDisplay) || 0;
-    setManualTotal(value);
-    setShowMiniCalc(false);
-    calcClear();
-  };
-
   const openMiniCalc = () => {
-    calcClear();
     setShowMiniCalc(true);
   };
 
@@ -301,7 +229,7 @@ ${itemsList}
     // For now, allow it.
 
     const invoice: Invoice = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       customerId: selectedCustomerId,
       customerName: selectedCustomer?.name || 'Unknown',
       date: new Date().toISOString(),
@@ -323,6 +251,7 @@ ${itemsList}
     }
 
     setSuccess(true);
+    localStorage.removeItem('rinno_draft_cart');
     // Reset Form
     setCart([]);
     setSelectedCustomerId('');
@@ -335,7 +264,7 @@ ${itemsList}
     setTimeout(() => setSuccess(false), 3000);
   };
 
-  const activeProducts = products.filter(p => p.isActive !== false);
+  const activeProducts = useMemo(() => products.filter(p => p.isActive !== false), [products]);
 
   return (
     <div className="flex flex-col h-[calc(100dvh-100px)] lg:h-[calc(100dvh-140px)] relative">
@@ -574,59 +503,15 @@ ${itemsList}
               </div>
             </div>
 
-            {/* Mini Calculator Popup */}
-            {showMiniCalc && (
-              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowMiniCalc(false)}>
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={e => e.stopPropagation()}>
-                  {/* Calculator Header */}
-                  <div className="bg-gradient-to-br from-primary-500 to-blue-600 p-4 text-white">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm opacity-80">الآلة الحاسبة</span>
-                      <button onClick={() => setShowMiniCalc(false)} className="p-1 hover:bg-white/20 rounded">
-                        <X size={18} />
-                      </button>
-                    </div>
-                    <div className="text-left h-6 text-sm opacity-60">
-                      {calcPrevValue !== null && calcOperation && (
-                        <span>{calcPrevValue} {calcOperation}</span>
-                      )}
-                    </div>
-                    <div className="text-left text-4xl font-black">{calcDisplay}</div>
-                  </div>
-
-                  {/* Calculator Buttons */}
-                  <div className="p-3 bg-slate-50 grid grid-cols-4 gap-2">
-                    {/* Row 1 - Operations on right */}
-                    <button onClick={() => calcPerformOperation('-')} className="h-14 rounded-xl bg-orange-100 hover:bg-orange-200 font-bold text-2xl text-orange-700">−</button>
-                    <button onClick={calcClear} className="h-14 rounded-xl bg-gray-200 hover:bg-gray-300 font-bold text-xl text-gray-600">C</button>
-                    <button onClick={() => calcPerformOperation('÷')} className="h-14 rounded-xl bg-primary-100 hover:bg-primary-200 font-bold text-xl text-primary-700">÷</button>
-                    <button onClick={() => calcPerformOperation('×')} className="h-14 rounded-xl bg-primary-100 hover:bg-primary-200 font-bold text-xl text-primary-700">×</button>
-
-                    {/* Row 2 */}
-                    <button onClick={() => calcPerformOperation('+')} className="h-14 rounded-xl bg-orange-100 hover:bg-orange-200 font-bold text-2xl text-orange-700">+</button>
-                    <button onClick={() => calcInputDigit('7')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">7</button>
-                    <button onClick={() => calcInputDigit('8')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">8</button>
-                    <button onClick={() => calcInputDigit('9')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">9</button>
-
-                    {/* Row 3 */}
-                    <button onClick={() => calcInputDigit('.')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">.</button>
-                    <button onClick={() => calcInputDigit('4')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">4</button>
-                    <button onClick={() => calcInputDigit('5')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">5</button>
-                    <button onClick={() => calcInputDigit('6')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">6</button>
-
-                    {/* Row 4 */}
-                    <button onClick={() => calcInputDigit('0')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">0</button>
-                    <button onClick={() => calcInputDigit('1')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">1</button>
-                    <button onClick={() => calcInputDigit('2')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">2</button>
-                    <button onClick={() => calcInputDigit('3')} className="h-14 rounded-xl bg-white hover:bg-gray-50 font-bold text-xl text-gray-800 shadow-sm border">3</button>
-
-                    {/* Row 5 - = and OK */}
-                    <button onClick={calcCalculate} className="h-14 rounded-xl bg-primary-500 hover:bg-primary-600 font-bold text-2xl text-white col-span-2">=</button>
-                    <button onClick={handleCalcOK} className="h-14 rounded-xl bg-green-500 hover:bg-green-600 font-bold text-xl text-white col-span-2">OK</button>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Calculator Modal */}
+            <CalculatorModal
+              isOpen={showMiniCalc}
+              onClose={() => setShowMiniCalc(false)}
+              onConfirm={(val) => {
+                setManualTotal(val);
+                setShowMiniCalc(false);
+              }}
+            />
 
             <div className="bg-white p-3 rounded-lg border border-gray-200 space-y-3">
               <h4 className="text-xs font-bold text-gray-500 mb-2">طريقة الدفع</h4>
@@ -661,7 +546,7 @@ ${itemsList}
                     className="w-24 p-2 text-lg border rounded-lg bg-gray-50 focus:bg-white transition outline-none"
                     placeholder="رقم الشيك"
                     value={chequeNumber}
-                    onChange={e => handleNumericInput(e.target.value, (n) => setChequeNumber(n.toString()))}
+                    onChange={e => setChequeNumber(e.target.value)}
                   />
                 )}
               </div>
@@ -715,52 +600,14 @@ ${itemsList}
       </div>
 
       {/* Quick Quantity Popup */}
-      {qtyPopup && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4" onClick={() => setQtyPopup(null)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-lg text-gray-800 mb-1 text-center">{qtyPopup.productName}</h3>
-            <p className="text-sm text-gray-500 mb-4 text-center">أدخل الكمية المطلوبة</p>
-            <input
-              type="number"
-              className="w-full text-center text-4xl font-black p-4 border-2 border-primary-300 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              value={qtyInput}
-              onChange={(e) => setQtyInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') confirmQtyPopup(); }}
-              autoFocus
-              min={1}
-            />
-            <div className="grid grid-cols-4 gap-2 mt-4">
-              {[1, 2, 3, 5, 10, 15, 20, 50].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setQtyInput(String(n))}
-                  className={`py-2 rounded-lg font-bold text-sm transition active:scale-95 ${
-                    qtyInput === String(n)
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={confirmQtyPopup}
-                className="flex-1 bg-primary-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-primary-700 transition active:scale-95"
-              >
-                تأكيد ✓
-              </button>
-              <button
-                onClick={() => setQtyPopup(null)}
-                className="bg-gray-200 text-gray-700 px-4 py-3 rounded-xl hover:bg-gray-300 transition"
-              >
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <QuantityModal
+        isOpen={!!qtyPopup}
+        productName={qtyPopup?.productName}
+        qtyInput={qtyInput}
+        setQtyInput={setQtyInput}
+        onConfirm={confirmQtyPopup}
+        onCancel={() => setQtyPopup(null)}
+      />
     </div>
   );
 };

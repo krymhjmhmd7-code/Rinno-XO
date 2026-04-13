@@ -1,19 +1,44 @@
 import { createClient } from '@libsql/client';
 
 // Turso Database Configuration
-// These values will be read from environment variables
+// In production: credentials are on the server (/api/db), NOT in the frontend bundle
+// In development: direct connection for convenience (VITE_ vars)
 const TURSO_URL = import.meta.env.VITE_TURSO_DATABASE_URL || '';
 const TURSO_TOKEN = import.meta.env.VITE_TURSO_AUTH_TOKEN || '';
 
-// Create the Turso client
+// Direct client for development only (will be null in production if VITE_ vars are removed)
 export const tursoClient = TURSO_URL ? createClient({
     url: TURSO_URL,
     authToken: TURSO_TOKEN,
 }) : null;
 
+// API proxy helper — used in production to keep credentials server-side
+const apiExecute = async (sql: string, args: any[] = []) => {
+    const res = await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'execute', params: { sql, args } }),
+    });
+    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+    return (await res.json()).result;
+};
+
+const apiBatch = async (statements: { sql: string; args?: any[] }[]) => {
+    const res = await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'batch', params: { statements } }),
+    });
+    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+    return (await res.json()).results;
+};
+
+// Use API proxy if tursoClient is not available (production mode)
+const useProxy = !tursoClient;
+
 // Check if database is configured
 export const isDatabaseConfigured = (): boolean => {
-    return !!TURSO_URL && !!TURSO_TOKEN;
+    return !!TURSO_URL || useProxy; // In production, proxy is always available
 };
 
 // Initialize database tables
@@ -249,10 +274,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             const tx = await tursoClient.transaction('write');
-            await tx.execute('DELETE FROM customers');
             for (const customer of customers) {
                 await tx.execute({
-                    sql: `INSERT INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance)
+                    sql: `INSERT OR REPLACE INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {})]
                 });
@@ -274,8 +298,6 @@ export const dataService = {
                 id: row.id as string,
                 name: row.name as string,
                 size: row.size as string,
-                stock: row.stock as number,
-                minStock: row.min_stock as number,
                 isActive: row.is_active === 1
             }));
         } catch {
@@ -287,8 +309,8 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT OR REPLACE INTO products (id, name, size, stock, min_stock, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
-                args: [product.id, product.name, product.size, product.stock, product.minStock, product.isActive ? 1 : 0]
+                sql: `INSERT OR REPLACE INTO products (id, name, size, is_active) VALUES (?, ?, ?, ?)`,
+                args: [product.id, product.name, product.size, product.isActive ? 1 : 0]
             });
             return true;
         } catch {
@@ -300,11 +322,10 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             const tx = await tursoClient.transaction('write');
-            await tx.execute('DELETE FROM products');
             for (const product of products) {
                 await tx.execute({
-                    sql: `INSERT INTO products (id, name, size, stock, min_stock, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
-                    args: [product.id, product.name, product.size, product.stock, product.minStock, product.isActive ? 1 : 0]
+                    sql: `INSERT OR REPLACE INTO products (id, name, size, is_active) VALUES (?, ?, ?, ?)`,
+                    args: [product.id, product.name, product.size, product.isActive ? 1 : 0]
                 });
             }
             await tx.commit();

@@ -45,3 +45,6 @@ ts-debug.log*
 
 .vercel
 .env*.local
+
+# Update Archive
+update/

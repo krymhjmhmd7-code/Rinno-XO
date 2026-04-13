@@ -14,15 +14,15 @@ export interface Customer {
   totalPurchases: number;
   balance: number;
   cylinderBalance?: { [productName: string]: number };
+  updatedAt?: string;
 }
 
 export interface Product {
   id: string;
   name: string;
   size: string;
-  stock: number;
-  minStock: number;
   isActive?: boolean;
+  updatedAt?: string;
 }
 
 export interface CartItem {
@@ -48,6 +48,7 @@ export interface Invoice {
   totalAmount: number;
   paymentDetails: PaymentDetails;
   status: 'paid' | 'debt' | 'partial';
+  updatedAt?: string;
 }
 
 export interface Repayment {
@@ -58,6 +59,7 @@ export interface Repayment {
   date: string;
   method: 'cash' | 'cheque';
   note?: string;
+  updatedAt?: string;
 }
 
 export interface DeletedItem {
@@ -78,6 +80,7 @@ export interface CylinderTransaction {
   type: 'out' | 'in';
   date: string;
   note?: string;
+  updatedAt?: string;
 }
 
 export interface AppSettings {

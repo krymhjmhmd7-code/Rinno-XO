@@ -1,122 +1,22 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
+import { useCalculator } from '../hooks/useCalculator';
 import { Delete, Divide, X, Minus, Plus, Equal, Percent } from 'lucide-react';
 
 export const Calculator: React.FC = () => {
-    const [display, setDisplay] = useState('0');
-    const [previousValue, setPreviousValue] = useState<string | null>(null);
-    const [operation, setOperation] = useState<string | null>(null);
-    const [waitingForOperand, setWaitingForOperand] = useState(false);
-
-    const inputDigit = useCallback((digit: string) => {
-        if (waitingForOperand) {
-            setDisplay(digit);
-            setWaitingForOperand(false);
-        } else {
-            setDisplay(display === '0' ? digit : display + digit);
-        }
-    }, [display, waitingForOperand]);
-
-    const inputDecimal = useCallback(() => {
-        if (waitingForOperand) {
-            setDisplay('0.');
-            setWaitingForOperand(false);
-        } else if (!display.includes('.')) {
-            setDisplay(display + '.');
-        }
-    }, [display, waitingForOperand]);
-
-    const clear = useCallback(() => {
-        setDisplay('0');
-        setPreviousValue(null);
-        setOperation(null);
-        setWaitingForOperand(false);
-    }, []);
-
-    const deleteLastDigit = useCallback(() => {
-        if (display.length === 1 || (display.length === 2 && display.startsWith('-'))) {
-            setDisplay('0');
-        } else {
-            setDisplay(display.slice(0, -1));
-        }
-    }, [display]);
-
-    const toggleSign = useCallback(() => {
-        const value = parseFloat(display);
-        if (value !== 0) {
-            setDisplay(String(-value));
-        }
-    }, [display]);
-
-    const inputPercent = useCallback(() => {
-        const value = parseFloat(display);
-        setDisplay(String(value / 100));
-    }, [display]);
-
-    const performOperation = useCallback((nextOperation: string) => {
-        const inputValue = parseFloat(display);
-
-        if (previousValue === null) {
-            setPreviousValue(display);
-        } else if (operation) {
-            const currentValue = parseFloat(previousValue);
-            let result: number;
-
-            switch (operation) {
-                case '+':
-                    result = currentValue + inputValue;
-                    break;
-                case '-':
-                    result = currentValue - inputValue;
-                    break;
-                case '×':
-                    result = currentValue * inputValue;
-                    break;
-                case '÷':
-                    result = inputValue !== 0 ? currentValue / inputValue : 0;
-                    break;
-                default:
-                    result = inputValue;
-            }
-
-            const resultString = String(parseFloat(result.toFixed(10)));
-            setDisplay(resultString);
-            setPreviousValue(resultString);
-        }
-
-        setWaitingForOperand(true);
-        setOperation(nextOperation);
-    }, [display, operation, previousValue]);
-
-    const calculate = useCallback(() => {
-        if (!operation || previousValue === null) return;
-
-        const inputValue = parseFloat(display);
-        const currentValue = parseFloat(previousValue);
-        let result: number;
-
-        switch (operation) {
-            case '+':
-                result = currentValue + inputValue;
-                break;
-            case '-':
-                result = currentValue - inputValue;
-                break;
-            case '×':
-                result = currentValue * inputValue;
-                break;
-            case '÷':
-                result = inputValue !== 0 ? currentValue / inputValue : 0;
-                break;
-            default:
-                result = inputValue;
-        }
-
-        const resultString = String(parseFloat(result.toFixed(10)));
-        setDisplay(resultString);
-        setPreviousValue(null);
-        setOperation(null);
-        setWaitingForOperand(true);
-    }, [display, operation, previousValue]);
+    const {
+        display,
+        previousValue,
+        operation,
+        inputDigit,
+        inputDecimal,
+        clear,
+        deleteLastDigit,
+        toggleSign,
+        inputPercent,
+        performOperation,
+        calculate,
+        formatDisplay,
+    } = useCalculator();
 
     const CalcButton: React.FC<{
         onClick: () => void;
@@ -143,16 +43,7 @@ export const Calculator: React.FC = () => {
         );
     };
 
-    const formatDisplay = (value: string) => {
-        const num = parseFloat(value);
-        if (isNaN(num)) return value;
-
-        // Format with commas for large numbers
-        if (Math.abs(num) >= 1000) {
-            return num.toLocaleString('en-US', { maximumFractionDigits: 10 });
-        }
-        return value;
-    };
+    
 
     return (
         <div className="max-w-md mx-auto">

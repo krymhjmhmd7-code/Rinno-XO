@@ -1,5 +1,6 @@
 import { Customer, Product, Invoice, AppSettings, Repayment, CylinderTransaction } from '../types';
 import { dataService, userService, isDatabaseConfigured } from './dbService';
+import { idbStorage } from './idbStorage';
 
 // Declare XLSX for TypeScript (loaded via CDN)
 declare const XLSX: any;
@@ -13,6 +14,33 @@ const KEYS = {
   CUSTOMER_TYPES: 'gaspro_customer_types',
   SETTINGS: 'gaspro_settings',
   RECYCLE_BIN: 'gaspro_recycle_bin',
+};
+
+/**
+ * Write-through helper: writes to localStorage (sync cache) AND IndexedDB (durable store)
+ * localStorage is used for fast synchronous reads, IndexedDB for capacity
+ */
+const persistItem = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn(`[storage] localStorage.setItem(${key}) failed (likely QuotaExceeded). Data saved to IndexedDB only.`);
+  }
+  // Async write to IndexedDB (fire and forget)
+  idbStorage.setItem(key, value).catch(err =>
+    console.error(`[storage] idbStorage.setItem(${key}) failed:`, err)
+  );
+};
+
+/**
+ * SHA-256 hash for passwords (#8)
+ */
+const hashPassword = async (password: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
 // Initial Seed Data - Empty for production use
@@ -84,7 +112,7 @@ const markSyncNeeded = () => {
   const current = storageService.getSettings();
   if (!current.needsSync) {
     current.needsSync = true;
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(current));
+    persistItem(KEYS.SETTINGS, JSON.stringify(current));
   }
 };
 
@@ -92,19 +120,31 @@ const markSyncDone = () => {
   const current = storageService.getSettings();
   if (current.needsSync) {
     current.needsSync = false;
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(current));
+    persistItem(KEYS.SETTINGS, JSON.stringify(current));
   }
 };
 
-// Helper to merge local and cloud records by ID (preserves offline changes)
-const mergeById = <T extends { id: string }>(local: T[], cloud: T[]): T[] => {
+// Helper to merge local and cloud records by ID using timestamps
+const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], cloud: T[]): T[] => {
     const merged = new Map<string, T>();
+    // Add all cloud items first
     for (const item of cloud) {
         merged.set(item.id, item);
     }
-    // Local records override cloud (user's latest edits take priority)
+    // Merge local items: keep whichever has the newer updatedAt
     for (const item of local) {
-        merged.set(item.id, item);
+        const existing = merged.get(item.id);
+        if (!existing) {
+            merged.set(item.id, item);
+        } else {
+            const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+            const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+            // If local is newer or same age, keep local (preserves offline edits)
+            if (localTime >= cloudTime) {
+                merged.set(item.id, item);
+            }
+            // Otherwise keep cloud version (it's newer)
+        }
     }
     return Array.from(merged.values());
 };
@@ -134,7 +174,7 @@ export const storageService = {
   },
 
   saveSettings: (settings: AppSettings) => {
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    persistItem(KEYS.SETTINGS, JSON.stringify(settings));
     // optionally sync settings to DB if table exists (it does)
   },
 
@@ -144,7 +184,7 @@ export const storageService = {
   },
 
   saveCustomerTypes: (types: string[]) => {
-    localStorage.setItem(KEYS.CUSTOMER_TYPES, JSON.stringify(types));
+    persistItem(KEYS.CUSTOMER_TYPES, JSON.stringify(types));
   },
 
   // Recalculate all customer balances from invoices and repayments
@@ -180,7 +220,7 @@ export const storageService = {
     });
 
     if (hasChanges) {
-      localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(customers));
+      persistItem(KEYS.CUSTOMERS, JSON.stringify(customers));
       console.log('Customer balances recalculated and corrected.');
     }
   },
@@ -228,14 +268,14 @@ export const storageService = {
     });
 
     if (updated) {
-      localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(customers));
+      persistItem(KEYS.CUSTOMERS, JSON.stringify(customers));
     }
 
     return customers;
   },
 
   saveCustomers: (customers: Customer[]) => {
-    localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(customers));
+    persistItem(KEYS.CUSTOMERS, JSON.stringify(customers));
     syncToDb('customers', customers);
   },
 
@@ -253,7 +293,7 @@ export const storageService = {
   },
 
   saveProducts: (products: Product[]) => {
-    localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(products));
+    persistItem(KEYS.PRODUCTS, JSON.stringify(products));
     syncToDb('products', products);
   },
 
@@ -263,7 +303,7 @@ export const storageService = {
   },
 
   saveInvoices: (invoices: Invoice[]) => {
-    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+    persistItem(KEYS.INVOICES, JSON.stringify(invoices));
     // syncToDb('invoices', invoices); // Not strictly needed for active sync if addInvoice handles it
   },
 
@@ -271,7 +311,7 @@ export const storageService = {
     // 1. Save Invoice
     const invoices = storageService.getInvoices();
     invoices.unshift(invoice);
-    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+    persistItem(KEYS.INVOICES, JSON.stringify(invoices));
 
     // 2. Update Customer Stats & Balance
     const customers = storageService.getCustomers();
@@ -315,7 +355,7 @@ export const storageService = {
 
     // 2. Remove Invoice
     invoices.splice(invoiceIndex, 1);
-    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+    persistItem(KEYS.INVOICES, JSON.stringify(invoices));
 
     // 3. Revert Customer Stats & Balance
     const customers = storageService.getCustomers();
@@ -354,7 +394,7 @@ export const storageService = {
     invoices[invoiceIndex].date = newDate;
     // Re-sort to maintain order if necessary, but UI usually sorts. Array order in storage doesn't strictly matter if we always sort on display.
     // However, for consistency let's keep it somewhat ordered or just save.
-    localStorage.setItem(KEYS.INVOICES, JSON.stringify(invoices));
+    persistItem(KEYS.INVOICES, JSON.stringify(invoices));
 
     if (isDatabaseConfigured()) {
       dataService.updateInvoiceDate(id, newDate)
@@ -368,7 +408,7 @@ export const storageService = {
   // Helper to add a manual debt (e.g., old balance)
   addManualDebt: (customerId: string, customerName: string, amount: number, note: string) => {
     const invoice: Invoice = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       customerId,
       customerName,
       date: new Date().toISOString(),
@@ -397,7 +437,7 @@ export const storageService = {
     // 1. Save Repayment Record
     const repayments = storageService.getRepayments();
     repayments.unshift(repayment);
-    localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
+    persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
 
     // 2. Update Customer Balance
     const customers = storageService.getCustomers();
@@ -434,7 +474,7 @@ export const storageService = {
 
     // 2. Remove
     repayments.splice(index, 1);
-    localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
+    persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
 
     // 3. Revert Customer Balance
     const customers = storageService.getCustomers();
@@ -465,7 +505,7 @@ export const storageService = {
     if (index === -1) return;
 
     repayments[index].date = newDate;
-    localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
+    persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
 
     if (isDatabaseConfigured()) {
       dataService.updateRepaymentDate(id, newDate)
@@ -486,7 +526,7 @@ export const storageService = {
     // 1. Save Transaction
     const transactions = storageService.getCylinderTransactions();
     transactions.unshift(tx);
-    localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
+    persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
 
     // 2. Update Customer Cylinder Balance
     const customers = storageService.getCustomers();
@@ -532,7 +572,7 @@ export const storageService = {
 
     // 2. Remove
     transactions.splice(index, 1);
-    localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
+    persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
 
     // 3. Revert Balance
     const customers = storageService.getCustomers();
@@ -572,7 +612,7 @@ export const storageService = {
     if (index === -1) return;
 
     transactions[index].date = newDate;
-    localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
+    persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
 
     if (isDatabaseConfigured()) {
       dataService.updateCylinderTransactionDate(id, newDate)
@@ -596,38 +636,38 @@ export const storageService = {
 
       if (serverResetTime && serverResetTime !== localResetTime) {
         console.warn('Detected remote factory reset signal. Updating timestamp only (local data preserved).');
-        localStorage.setItem('last_reset_timestamp', serverResetTime);
+        persistItem('last_reset_timestamp', serverResetTime);
       }
 
       // 2. Customers - Smart Merge
       const dbCustomers = await dataService.getCustomers();
       const localCustomers: any[] = JSON.parse(localStorage.getItem(KEYS.CUSTOMERS) || '[]');
       const mergedCustomers = mergeById(localCustomers, dbCustomers);
-      localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(mergedCustomers));
+      persistItem(KEYS.CUSTOMERS, JSON.stringify(mergedCustomers));
 
       // 3. Products - Smart Merge
       const dbProducts = await dataService.getProducts();
       const localProducts: any[] = JSON.parse(localStorage.getItem(KEYS.PRODUCTS) || '[]');
       const mergedProducts = mergeById(localProducts, dbProducts);
-      localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(mergedProducts));
+      persistItem(KEYS.PRODUCTS, JSON.stringify(mergedProducts));
 
       // 4. Invoices - Smart Merge
       const dbInvoices = await dataService.getInvoices();
       const localInvoices: any[] = JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]');
       const mergedInvoices = mergeById(localInvoices, dbInvoices);
-      localStorage.setItem(KEYS.INVOICES, JSON.stringify(mergedInvoices));
+      persistItem(KEYS.INVOICES, JSON.stringify(mergedInvoices));
 
       // 5. Repayments - Smart Merge
       const dbRepayments = await dataService.getRepayments();
       const localRepayments: any[] = JSON.parse(localStorage.getItem(KEYS.REPAYMENTS) || '[]');
       const mergedRepayments = mergeById(localRepayments, dbRepayments);
-      localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(mergedRepayments));
+      persistItem(KEYS.REPAYMENTS, JSON.stringify(mergedRepayments));
 
       // 6. Cylinder Tx - Smart Merge
       const dbTx = await dataService.getCylinderTransactions();
       const localTx: any[] = JSON.parse(localStorage.getItem(KEYS.CYLINDER_TX) || '[]');
       const mergedTx = mergeById(localTx, dbTx);
-      localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(mergedTx));
+      persistItem(KEYS.CYLINDER_TX, JSON.stringify(mergedTx));
 
       // 7. Push merged data back to cloud
       try {
@@ -792,29 +832,57 @@ export const storageService = {
     try {
       const data = JSON.parse(jsonString);
 
-      // Basic validation
+      // Schema validation
       if (!data.customers || !data.products || !data.invoices) {
+        console.error('Import failed: missing required keys (customers, products, invoices)');
         return false;
       }
 
-      localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(data.customers));
-      localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(data.products));
-      localStorage.setItem(KEYS.INVOICES, JSON.stringify(data.invoices));
-
-      if (data.repayments) {
-        localStorage.setItem(KEYS.REPAYMENTS, JSON.stringify(data.repayments));
+      // Validate arrays
+      if (!Array.isArray(data.customers) || !Array.isArray(data.products) || !Array.isArray(data.invoices)) {
+        console.error('Import failed: customers, products, invoices must be arrays');
+        return false;
       }
 
-      if (data.cylinderTransactions) {
-        localStorage.setItem(KEYS.CYLINDER_TX, JSON.stringify(data.cylinderTransactions));
+      // Validate each customer has required fields
+      const validCustomers = data.customers.every((c: any) => c && typeof c.id === 'string' && typeof c.name === 'string');
+      if (!validCustomers) {
+        console.error('Import failed: invalid customer data structure');
+        return false;
       }
 
-      if (data.customerTypes) {
-        localStorage.setItem(KEYS.CUSTOMER_TYPES, JSON.stringify(data.customerTypes));
+      // Validate each product has required fields
+      const validProducts = data.products.every((p: any) => p && typeof p.id === 'string' && typeof p.name === 'string');
+      if (!validProducts) {
+        console.error('Import failed: invalid product data structure');
+        return false;
       }
 
-      if (data.settings) {
-        localStorage.setItem(KEYS.SETTINGS, JSON.stringify(data.settings));
+      // Validate each invoice has required fields
+      const validInvoices = data.invoices.every((i: any) => i && typeof i.id === 'string' && typeof i.customerId === 'string');
+      if (!validInvoices) {
+        console.error('Import failed: invalid invoice data structure');
+        return false;
+      }
+
+      persistItem(KEYS.CUSTOMERS, JSON.stringify(data.customers));
+      persistItem(KEYS.PRODUCTS, JSON.stringify(data.products));
+      persistItem(KEYS.INVOICES, JSON.stringify(data.invoices));
+
+      if (Array.isArray(data.repayments)) {
+        persistItem(KEYS.REPAYMENTS, JSON.stringify(data.repayments));
+      }
+
+      if (Array.isArray(data.cylinderTransactions)) {
+        persistItem(KEYS.CYLINDER_TX, JSON.stringify(data.cylinderTransactions));
+      }
+
+      if (Array.isArray(data.customerTypes)) {
+        persistItem(KEYS.CUSTOMER_TYPES, JSON.stringify(data.customerTypes));
+      }
+
+      if (data.settings && typeof data.settings === 'object') {
+        persistItem(KEYS.SETTINGS, JSON.stringify(data.settings));
       }
 
       return true;
@@ -834,14 +902,14 @@ export const storageService = {
   moveToRecycleBin: (type: string, data: any, description: string) => {
     const bin = storageService.getRecycleBin();
     bin.unshift({
-      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
+      id: crypto.randomUUID(),
       type,
       data: JSON.parse(JSON.stringify(data)),
       deletedBy: storageService.getCurrentUserEmail(),
       deletedAt: new Date().toISOString(),
       description
     });
-    localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
+    persistItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
   },
 
   getRecycleBin: (): any[] => {
@@ -904,7 +972,7 @@ export const storageService = {
 
     if (success) {
       bin.splice(index, 1);
-      localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
+      persistItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
     }
     return success;
   },
@@ -918,6 +986,6 @@ export const storageService = {
   },
 
   emptyRecycleBin: () => {
-    localStorage.setItem(KEYS.RECYCLE_BIN, JSON.stringify([]));
+    persistItem(KEYS.RECYCLE_BIN, JSON.stringify([]));
   },
 };

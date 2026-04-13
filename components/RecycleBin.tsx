@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, RotateCcw, CheckSquare, Square, AlertTriangle, Shield, User, Clock, Package, FileText, CreditCard, Cylinder } from 'lucide-react';
+import { useDeletePassword } from '../hooks/useDeletePassword';
+import { DeletePasswordModal } from './DeletePasswordModal';
 import { storageService } from '../services/storage';
 import { DeletedItem } from '../types';
 
@@ -35,9 +37,15 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ onUpdate }) => {
   const [items, setItems] = useState<DeletedItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterType, setFilterType] = useState<string>('all');
-  const [showEmptyPassword, setShowEmptyPassword] = useState(false);
-  const [emptyPassword, setEmptyPassword] = useState('');
-  const [emptyPasswordError, setEmptyPasswordError] = useState('');
+  const {
+    showPasswordModal,
+    passwordInput,
+    passwordError,
+    setPasswordInput,
+    requestDelete,
+    verifyAndExecute,
+    cancelDelete
+  } = useDeletePassword();
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
@@ -86,22 +94,11 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ onUpdate }) => {
   };
 
   const handleEmptyBin = () => {
-    setShowEmptyPassword(true);
-    setEmptyPassword('');
-    setEmptyPasswordError('');
-  };
-
-  const verifyAndEmpty = () => {
-    const settings = storageService.getSettings();
-    const delPassword = settings.deletePassword || '1234';
-    if (emptyPassword === delPassword) {
+    requestDelete(() => {
       storageService.emptyRecycleBin();
-      setShowEmptyPassword(false);
       showSuccess('تم تفريغ سلة المحذوفات نهائياً');
       refreshItems();
-    } else {
-      setEmptyPasswordError('كلمة المرور خاطئة');
-    }
+    });
   };
 
   const showSuccess = (msg: string) => {
@@ -258,39 +255,14 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ onUpdate }) => {
       )}
 
       {/* Empty Bin Password Modal */}
-      {showEmptyPassword && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="text-red-600" size={24} />
-              <h3 className="font-bold text-lg text-red-600">تفريغ سلة المحذوفات نهائياً</h3>
-            </div>
-            <p className="text-gray-600 mb-4 text-sm">
-              سيتم حذف <strong>{items.length}</strong> عنصر نهائياً ولا يمكن استرجاعها بعد ذلك.
-              أدخل كلمة مرور المسؤول للتأكيد.
-            </p>
-            <input
-              type="password"
-              className={`w-full p-2 border rounded mb-2 ${emptyPasswordError ? 'border-red-500 bg-red-50' : ''}`}
-              placeholder="كلمة المرور"
-              value={emptyPassword}
-              onChange={e => {
-                setEmptyPassword(e.target.value);
-                setEmptyPasswordError('');
-              }}
-            />
-            {emptyPasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{emptyPasswordError}</p>}
-            <div className="flex gap-2">
-              <button onClick={verifyAndEmpty} className="flex-1 bg-red-600 text-white py-2 rounded font-bold">
-                تفريغ نهائي
-              </button>
-              <button onClick={() => setShowEmptyPassword(false)} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeletePasswordModal
+        show={showPasswordModal}
+        passwordInput={passwordInput}
+        passwordError={passwordError}
+        onPasswordChange={setPasswordInput}
+        onConfirm={verifyAndExecute}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 };

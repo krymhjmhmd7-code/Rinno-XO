@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Repayment, Invoice } from '../types';
 import { storageService } from '../services/storage';
 import { Wallet, Search, ArrowRight, Calendar, Banknote, ScrollText, CheckCircle, PlusCircle, AlertCircle, Filter, FileText } from 'lucide-react';
@@ -44,46 +44,62 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
     }
   }, [initialCustomerId, customers]);
 
-  const totalDebt = customers.reduce((sum, c) => sum + (c.balance > 0 ? c.balance : 0), 0);
-  const debtorsCount = customers.filter(c => c.balance > 0).length;
+  const totalDebt = useMemo(() => customers.reduce((sum, c) => sum + (c.balance > 0 ? c.balance : 0), 0), [customers]);
+  const debtorsCount = useMemo(() => customers.filter(c => c.balance > 0).length, [customers]);
 
-  const filteredCustomers = customers.filter(c => {
-    const matchesSearch = c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.serialNumber.toString().includes(searchTerm);
-    const matchesFilter = showDebtorsOnly ? c.balance > 0 : true;
-    return matchesSearch && matchesFilter;
-  }).sort((a, b) => {
-    // Sort debtors first, then by name
-    if (a.balance > 0 && b.balance <= 0) return -1;
-    if (a.balance <= 0 && b.balance > 0) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => {
+      const matchesSearch = c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.serialNumber.toString().includes(searchTerm);
+      const matchesFilter = showDebtorsOnly ? c.balance > 0 : true;
+      return matchesSearch && matchesFilter;
+    }).sort((a, b) => {
+      // Sort debtors first, then by name
+      if (a.balance > 0 && b.balance <= 0) return -1;
+      if (a.balance <= 0 && b.balance > 0) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [customers, searchTerm, showDebtorsOnly]);
 
-  // Function to get the last significant note/statement for a customer
-  const getLastNote = (customerId: string) => {
-    // 1. Find Repayments for this customer
-    const custRepayments = repayments.filter(r => r.customerId === customerId);
-    // 2. Find Invoices (specifically manual debts or regular invoices)
-    const custInvoices = invoices.filter(i => i.customerId === customerId);
+  // Precomputed map: customerId → last note (O(N) optimized lookup)
+  const lastNoteMap = useMemo(() => {
+    const map = new Map<string, string>();
+    
+    // Quick grouping
+    const activitiesByCustomer = new Map<string, { date: number, note: string }>();
 
-    // Combine and sort by date descending
-    const allActivities = [
-      ...custRepayments.map(r => ({ date: new Date(r.date), type: 'repayment', note: r.note, amount: r.amount })),
-      ...custInvoices.map(i => ({
-        date: new Date(i.date),
-        type: 'invoice',
-        // Check if it's a manual debt (single item usually) or regular invoice
-        note: i.items[0]?.productId === 'manual-debt' ? i.items[0].productName : `فاتورة مبيعات`,
-        amount: i.totalAmount
-      }))
-    ].sort((a, b) => b.date.getTime() - a.date.getTime());
-
-    if (allActivities.length > 0) {
-      const last = allActivities[0];
-      // Return the note if it exists, otherwise generic description
-      return last.note || (last.type === 'invoice' ? 'فاتورة' : 'سداد');
+    // Process Repayments O(R)
+    for (const r of repayments) {
+      const dateVal = new Date(r.date).getTime();
+      const existing = activitiesByCustomer.get(r.customerId);
+      if (!existing || dateVal > existing.date) {
+        activitiesByCustomer.set(r.customerId, { date: dateVal, note: r.note || 'سداد' });
+      }
     }
-    return '-';
-  };
+
+    // Process Invoices O(I)
+    for (const i of invoices) {
+      const dateVal = new Date(i.date).getTime();
+      const note = i.items[0]?.productId === 'manual-debt' ? i.items[0].productName : `فاتورة مبيعات`;
+      const existing = activitiesByCustomer.get(i.customerId);
+      if (!existing || dateVal > existing.date) {
+        activitiesByCustomer.set(i.customerId, { date: dateVal, note });
+      }
+    }
+
+    // Assign to customers O(C)
+    for (const customer of customers) {
+      const lastActivity = activitiesByCustomer.get(customer.id);
+      if (lastActivity) {
+        map.set(customer.id, lastActivity.note);
+      } else {
+        map.set(customer.id, '-');
+      }
+    }
+    
+    return map;
+  }, [customers, repayments, invoices]);
+
+  const getLastNote = (customerId: string) => lastNoteMap.get(customerId) || '-';
 
   const handleRepayment = () => {
     if (!selectedCustomerId || !amount || Number(amount) <= 0) return;
@@ -92,7 +108,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
     if (!customer) return;
 
     const newRepayment: Repayment = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       customerId: selectedCustomerId,
       customerName: customer.name,
       amount: Number(amount),

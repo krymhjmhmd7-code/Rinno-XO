@@ -1,18 +1,19 @@
 
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Customer, Product, Invoice, Repayment } from '../types';
 import { Plus, Search, Settings, Trash2, X, LayoutGrid, List, Printer } from 'lucide-react';
 import { storageService } from '../services/storage';
-import html2canvas from 'html2canvas';
-import { Share } from '@capacitor/share';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 
 // Import sub-components
 import { CustomerForm } from './CustomerForm';
 import { CustomerCard } from './CustomerCard';
 import { CustomerTable } from './CustomerTable';
 import { CustomerHistory, HistoryItem } from './CustomerHistory';
+import { useDeletePassword } from '../hooks/useDeletePassword';
+import { DeletePasswordModal } from './DeletePasswordModal';
+import { generateInvoiceHtml, generateHistoryHtml } from '../utils/printTemplates';
+import { captureAndShare } from '../utils/shareHelper';
 
 interface CustomersProps {
   customers: Customer[];
@@ -55,17 +56,24 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   // Password Prompt
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+  const {
+    showPasswordModal,
+    passwordInput,
+    passwordError,
+    setPasswordInput,
+    requestDelete,
+    verifyAndExecute,
+    cancelDelete
+  } = useDeletePassword();
 
   // Customer Types State
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
   const [newTypeInput, setNewTypeInput] = useState('');
 
   // Calculate next serial
-  const nextSerial = customers.length > 0 ? Math.max(...customers.map(c => c.serialNumber || 0)) + 1 : 1;
+  const nextSerial = useMemo(() => {
+    return customers.length > 0 ? Math.max(...customers.map(c => c.serialNumber || 0)) + 1 : 1;
+  }, [customers]);
 
   useEffect(() => {
     setAvailableTypes(storageService.getCustomerTypes());
@@ -80,9 +88,11 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
     whatsapp: '+',
   });
 
-  const filteredCustomers = customers.filter(c =>
-    c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.city.includes(searchTerm) || (c.serialNumber?.toString().includes(searchTerm))
-  );
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c =>
+      c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.city.includes(searchTerm) || (c.serialNumber?.toString().includes(searchTerm))
+    );
+  }, [customers, searchTerm]);
 
   const handleViewModeChange = (mode: 'table' | 'grid') => {
     setViewMode(mode);
@@ -108,15 +118,11 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
     if (finalWa === '+') finalWa = '';
 
     // Determine Serial Number for New Customer
-    let currentSerial = 0;
-    if (!editingId) {
-      currentSerial = nextSerial;
-    } else {
-      currentSerial = customers.find(c => c.id === editingId)?.serialNumber || 0;
-    }
+    const existing = editingId ? customers.find(c => c.id === editingId) : null;
+    const currentSerial = existing ? (existing.serialNumber || 0) : nextSerial;
 
     const customerData: Customer = {
-      id: editingId || Date.now().toString(),
+      id: editingId || crypto.randomUUID(),
       serialNumber: currentSerial,
       name: formData.name!,
       type: formData.type || 'غير مصنف',
@@ -125,9 +131,9 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
       city: formData.city || 'غير محدد',
       village: formData.village || '',
       neighborhood: formData.neighborhood || '',
-      totalPurchases: editingId ? (customers.find(c => c.id === editingId)?.totalPurchases || 0) : 0,
-      balance: editingId ? (customers.find(c => c.id === editingId)?.balance || 0) : 0,
-      cylinderBalance: editingId ? (customers.find(c => c.id === editingId)?.cylinderBalance || {}) : {}
+      totalPurchases: existing ? (existing.totalPurchases || 0) : 0,
+      balance: existing ? (existing.balance || 0) : 0,
+      cylinderBalance: existing ? (existing.cylinderBalance || {}) : {}
     };
 
     if (editingId) {
@@ -159,30 +165,13 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
   const confirmDelete = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setDeleteTargetId(id);
-    setShowPasswordPrompt(true);
-    setPasswordInput('');
-    setPasswordError('');
-  };
-
-  const performDelete = (id: string) => {
     const customer = customers.find(c => c.id === id);
-    if (customer) {
-      storageService.moveToRecycleBin('customer', customer, `زبون: ${customer.name} (#${customer.serialNumber})`);
-    }
-    onUpdate(customers.filter(c => c.id !== id));
-    setShowPasswordPrompt(false);
-    setDeleteTargetId(null);
-  };
+    if (!customer) return;
 
-  const checkPasswordAndDelete = () => {
-    const settings = storageService.getSettings();
-    const delPassword = settings.deletePassword || '1234';
-    if (passwordInput === delPassword) {
-      performDelete(deleteTargetId!);
-    } else {
-      setPasswordError('كلمة المرور خاطئة');
-    }
+    requestDelete(() => {
+      storageService.moveToRecycleBin('customer', customer, `زبون: ${customer.name} (#${customer.serialNumber})`);
+      onUpdate(customers.filter(c => c.id !== id));
+    });
   };
 
   const openHistory = (c: Customer) => {
@@ -276,68 +265,7 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
   const [printPreviewHtml, setPrintPreviewHtml] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const printInvoice = (inv: Invoice) => {
-    const html = `
-        <html>
-          <head>
-            <title>فاتورة #${inv.id.slice(-6)}</title>
-            <style>
-              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; color: #000; }
-              .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #000; padding-bottom: 10px; }
-              .info { margin-bottom: 20px; font-size: 14px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000; }
-              th, td { border: 1px solid #000; padding: 8px; text-align: right; }
-              th { background-color: #fff; font-weight: bold; }
-              .total { font-size: 16px; font-weight: bold; margin-top: 10px; border-top: 1px solid #000; padding-top: 10px; }
-              .footer { margin-top: 30px; text-align: center; font-size: 12px; border-top: 1px dashed #000; padding-top: 10px; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h2>فاتورة ضريبية / مبيعات</h2>
-              <p>مؤسسة رنّو اكسجين</p>
-            </div>
-            <div class="info">
-              <table style="border: none; width: 100%;">
-                <tr style="border: none;">
-                  <td style="border: none;"><strong>الزبون:</strong> ${inv.customerName}</td>
-                  <td style="border: none; text-align: left;"><strong>التاريخ:</strong> ${new Date(inv.date).toLocaleDateString('en-US')}</td>
-                </tr>
-                <tr style="border: none;">
-                  <td style="border: none;"><strong>رقم الفاتورة:</strong> #${inv.id.slice(-6)}</td>
-                  <td style="border: none;"></td>
-                </tr>
-              </table>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>الصنف</th>
-                  <th>الكمية</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${inv.items.map(i => `
-                  <tr>
-                    <td>${i.productName}</td>
-                    <td>${i.quantity}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-            <div class="total">
-              <p>المجموع الكلي: ${inv.totalAmount} شيكل</p>
-              <p style="font-size: 14px;">المدفوع نقداً: ${inv.paymentDetails.cash} | شيك: ${inv.paymentDetails.cheque}</p>
-              <p style="font-size: 14px;">المتبقي ذمم: ${inv.paymentDetails.debt} شيكل</p>
-            </div>
-            <div class="footer">
-              <p>شكراً لتعاملكم معنا - نعتز بقطتكم</p>
-            </div>
-          </body>
-        </html>
-      `;
-    setPrintPreviewHtml(html);
-  };
+  const printInvoice = (inv: Invoice) => { setPrintPreviewHtml(generateInvoiceHtml(inv)); };
 
   // Refs for hidden templates
   const invoiceTemplateRef = useRef<HTMLDivElement>(null);
@@ -346,221 +274,19 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
   const [shareHistoryData, setShareHistoryData] = useState<{ customer: Customer; history: HistoryItem[] } | null>(null);
 
   const shareInvoice = async (inv: Invoice, customer: Customer) => {
-    // Set data and wait for render
     setShareInvoiceData({ inv, customer });
-
-    // Wait for next frame to ensure DOM is updated
     await new Promise(resolve => setTimeout(resolve, 150));
-
-    if (!invoiceTemplateRef.current) {
-      alert('خطأ في إنشاء الصورة');
-      setShareInvoiceData(null);
-      return;
-    }
-
-    try {
-      const canvas = await html2canvas(invoiceTemplateRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-      });
-
-      // Convert canvas to base64
-      const base64Data = canvas.toDataURL('image/png').split(',')[1];
-      const fileName = `invoice_${inv.id.slice(-6)}.png`;
-
-      try {
-        // Save to cache directory
-        const savedFile = await Filesystem.writeFile({
-          path: fileName,
-          data: base64Data,
-          directory: Directory.Cache,
-        });
-
-        // Share using Capacitor Share
-        await Share.share({
-          title: `فاتورة #${inv.id.slice(-6)}`,
-          text: `فاتورة للزبون ${customer.name}`,
-          url: savedFile.uri,
-          dialogTitle: 'مشاركة الفاتورة',
-        });
-      } catch (shareError: any) {
-        console.error('Share failed:', shareError);
-        // Fallback: try web download
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((b) => resolve(b), 'image/png', 1.0);
-        });
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-      }
-      setShareInvoiceData(null);
-    } catch (err) {
-      console.error('Error creating image:', err);
-      alert('خطأ في إنشاء الصورة');
-      setShareInvoiceData(null);
-    }
+    await captureAndShare(invoiceTemplateRef, `invoice_${inv.id.slice(-6)}.png`, `فاتورة #${inv.id.slice(-6)}`, `فاتورة للزبون ${customer.name}`);
+    setShareInvoiceData(null);
   };
 
-  const printHistory = (customer: Customer, history: HistoryItem[]) => {
-    const html = `
-        <html>
-          <head>
-            <title>كشف حساب - ${customer.name}</title>
-            <style>
-            <style>
-              body { font-family: 'Arial', sans-serif; direction: rtl; padding: 20px; color: #000; }
-              h1, h2 { text-align: center; margin: 10px 0; color: #000; font-weight: bold; font-size: 26px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 2px solid #000; }
-              th, td { border: 2px solid #000; padding: 10px; text-align: right; color: #000; font-size: 15px; }
-              th { background-color: #fff; font-weight: bold; border-bottom: 3px solid #000; }
-              .footer { margin-top: 30px; text-align: center; font-weight: bold; }
-              .balance { font-size: 24px; margin-top: 15px; padding: 15px; border: 3px solid #000; display: inline-block; font-weight: bold; width: 100%; box-sizing: border-box; }
-              .customer-info { margin-top: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; font-weight: bold; font-size: 18px; }
-            </style>
-          </head>
-          <body>
-            <h2>كشف حساب زبون</h2>
-            <div class="customer-info">
-              <div style="display: flex; justify-content: space-between;">
-                <span>الاسم: ${customer.name} (#${customer.serialNumber})</span>
-                <span>تاريخ الاستخراج: ${new Date().toLocaleDateString('en-US')}</span>
-              </div>
-              <div style="margin-top: 5px;">رقم الجوال: ${customer.phone}</div>
-            </div>
-            
-            <table>
-              <thead>
-                <tr>
-                  <th>التاريخ</th>
-                  <th>نوع الحركة</th>
-                  <th>البيان / التفاصيل</th>
-                  <th>مدين (عليه)</th>
-                  <th>دائن (له/سدد)</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${history.map(item => {
-      const date = new Date(item.date).toLocaleDateString('en-US');
-
-      if (item.type === 'invoice') {
-        const inv = item as Invoice;
-        const details = inv.items.map(i => `${i.productName} (${i.quantity})`).join(', ');
-        // Invoice increases debt (Debit)
-        return `
-                      <tr>
-                        <td style="font-weight: bold;">${date}</td>
-                        <td style="font-weight: bold;">
-                           <div>فاتورة #${inv.id.slice(-6)}</div>
-                           <div style="font-size: 12px; margin-top: 5px;">${details}</div>
-                        </td>
-                        <td style="font-weight: bold;">${inv.totalAmount}</td>
-                        <td style="font-weight: bold;">0</td>
-                      </tr>
-                      ${(inv.paymentDetails.cash + inv.paymentDetails.cheque) > 0 ? `
-                          <tr style="background-color: #f9f9f9;">
-                            <td style="font-weight: bold;">${date}</td>
-                            <td style="font-weight: bold;">دفع فوري (فاتورة)</td>
-                            <td style="font-weight: bold;">نقد/شيك</td>
-                            <td style="font-weight: bold;">0</td>
-                            <td style="font-weight: bold;">${inv.paymentDetails.cash + inv.paymentDetails.cheque}</td>
-                          </tr>
-                      ` : ''}
-                     `;
-      } else {
-        const rep = item as Repayment;
-        // Repayment decreases debt (Credit)
-        return `
-                      <tr>
-                        <td style="font-weight: bold;">${date}</td>
-                        <td style="font-weight: bold;">سند سداد/قبض</td>
-                        <td style="font-weight: bold;">${rep.method === 'cash' ? 'نقداً' : 'شيك'} ${rep.note ? ` - ${rep.note}` : ''}</td>
-                        <td style="font-weight: bold;">0</td>
-                        <td style="font-weight: bold;">${rep.amount}</td>
-                      </tr>
-                     `;
-      }
-    }).join('')}
-              </tbody>
-            </table>
-            
-            <div class="footer">
-              <div class="balance">
-                 الرصيد الحالي النهائي: 
-                 ${customer.balance > 0 ? `${customer.balance} (عليه)` : `${Math.abs(customer.balance)} (له)`}
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
-    setPrintPreviewHtml(html);
-  };
+  const printHistory = (customer: Customer, history: HistoryItem[]) => { setPrintPreviewHtml(generateHistoryHtml(customer, history)); };
 
   const shareHistory = async (customer: Customer, history: HistoryItem[]) => {
-    // Set data and wait for render
     setShareHistoryData({ customer, history });
-
-    // Wait for next frame to ensure DOM is updated
     await new Promise(resolve => setTimeout(resolve, 150));
-
-    if (!historyTemplateRef.current) {
-      alert('خطأ في إنشاء الصورة');
-      setShareHistoryData(null);
-      return;
-    }
-
-    try {
-      const canvas = await html2canvas(historyTemplateRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-      });
-
-      // Convert canvas to base64
-      const base64Data = canvas.toDataURL('image/png').split(',')[1];
-      const fileName = `statement_${customer.serialNumber}.png`;
-
-      try {
-        // Save to cache directory
-        const savedFile = await Filesystem.writeFile({
-          path: fileName,
-          data: base64Data,
-          directory: Directory.Cache,
-        });
-
-        // Share using Capacitor Share
-        await Share.share({
-          title: `كشف حساب - ${customer.name}`,
-          text: `كشف حساب للزبون ${customer.name}`,
-          url: savedFile.uri,
-          dialogTitle: 'مشاركة كشف الحساب',
-        });
-      } catch (shareError: any) {
-        console.error('Share failed:', shareError);
-        // Fallback: try web download
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((b) => resolve(b), 'image/png', 1.0);
-        });
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-      }
-      setShareHistoryData(null);
-    } catch (err) {
-      console.error('Error creating image:', err);
-      alert('خطأ في إنشاء الصورة');
-      setShareHistoryData(null);
-    }
+    await captureAndShare(historyTemplateRef, `statement_${customer.serialNumber}.png`, `كشف حساب - ${customer.name}`, `كشف حساب للزبون ${customer.name}`);
+    setShareHistoryData(null);
   };
 
   return (
@@ -649,30 +375,14 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
       )}
 
       {/* Password Prompt Modal */}
-      {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
-            <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لإتمام الحذف.</p>
-            <input
-              type="password"
-              className={`w-full p-2 border rounded mb-2 ${passwordError ? 'border-red-500 bg-red-50' : ''}`}
-              placeholder="كلمة المرور"
-              value={passwordInput}
-              onChange={e => {
-                setPasswordInput(e.target.value);
-                setPasswordError('');
-              }}
-            />
-            {passwordError && <p className="text-red-600 text-xs mb-4 font-bold">{passwordError}</p>}
-
-            <div className="flex gap-2">
-              <button onClick={checkPasswordAndDelete} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
-              <button onClick={() => setShowPasswordPrompt(false)} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeletePasswordModal
+        show={showPasswordModal}
+        passwordInput={passwordInput}
+        passwordError={passwordError}
+        onPasswordChange={setPasswordInput}
+        onConfirm={verifyAndExecute}
+        onCancel={cancelDelete}
+      />
 
       {/* History Archive Modal */}
       {showHistoryModal && selectedHistoryCustomer && (
@@ -860,54 +570,76 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
                   <thead>
                     <tr>
                       <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>التاريخ</th>
-                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>التفاصيل</th>
-                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>عليه</th>
-                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>له</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>البيان</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>صادر [-]</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>وارد [+]</th>
+                      <th style={{ border: '2px solid black', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>الرصيد التراكمي</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {shareHistoryData.history.slice(0, 15).map((item, idx) => {
+                    {(() => {
+                      const sorted = [...shareHistoryData.history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                      let currentBalance = 0;
+                      const ledger = sorted.map(item => {
+                          let diff = 0;
+                          let displayedSader: string | number = '-';
+                          let displayedWared: string | number = '-';
+                          if (item.type === 'invoice') {
+                              const inv = item as Invoice;
+                              diff = inv.paymentDetails?.debt || 0;
+                              displayedSader = inv.totalAmount > 0 ? inv.totalAmount : '-';
+                              const paid = (inv.paymentDetails?.cash || 0) + (inv.paymentDetails?.cheque || 0);
+                              displayedWared = paid > 0 ? paid : '-';
+                          } else {
+                              const rep = item as Repayment;
+                              diff = -rep.amount;
+                              displayedWared = rep.amount > 0 ? rep.amount : '-';
+                          }
+                          currentBalance += diff;
+                          return { item, displayedSader, displayedWared, runningBalance: currentBalance };
+                      });
+                      ledger.reverse();
+                      return ledger.slice(0, 15).map(({ item, displayedSader, displayedWared, runningBalance }, idx) => {
                       const date = new Date(item.date).toLocaleDateString('en-US');
-                      if (item.type === 'invoice') {
-                        const inv = item as Invoice;
-                        const debt = inv.totalAmount;
-                        const paid = inv.paymentDetails.cash + inv.paymentDetails.cheque;
+                        const balanceText = runningBalance > 0 ? `${Math.abs(runningBalance)} (عليه)` : runningBalance < 0 ? `${Math.abs(runningBalance)} (له)` : '0';
 
-                        return (
-                          <React.Fragment key={idx}>
-                            <tr>
-                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
-                              <td style={{ border: '2px solid black', padding: '8px' }}>
-                                <div style={{ fontWeight: 'bold' }}>فاتورة #{inv.id.slice(-6)}</div>
-                                <div style={{ fontSize: '12px', color: 'black', fontWeight: 'bold', marginTop: '4px' }}>
-                                  {inv.items.map(i => `${i.productName} (${i.quantity})`).join(' | ')}
-                                </div>
-                              </td>
-                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{debt}</td>
-                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
-                            </tr>
-                            {paid > 0 && (
+                        if (item.type === 'invoice') {
+                          const inv = item as Invoice;
+                          return (
+                            <React.Fragment key={idx}>
                               <tr>
                                 <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
-                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>سداد فوري</td>
-                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
-                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{paid}</td>
+                                <td style={{ border: '2px solid black', padding: '8px' }}>
+                                  <div style={{ fontWeight: 'bold' }}>فاتورة #{inv.id.slice(-6)}</div>
+                                  <div style={{ fontSize: '12px', color: 'black', fontWeight: 'bold', marginTop: '4px' }}>
+                                    {inv.items.map(i => `${i.productName} (${i.quantity})`).join(' | ')}
+                                  </div>
+                                </td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{displayedSader}</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{displayedWared}</td>
+                                <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{balanceText}</td>
                               </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      } else {
-                        const rep = item as Repayment;
-                        return (
-                          <tr key={idx}>
-                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
-                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>سداد ({rep.method === 'cash' ? 'نقد' : 'شيك'})</td>
-                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>0</td>
-                            <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{rep.amount}</td>
-                          </tr>
-                        );
-                      }
-                    })}
+                            </React.Fragment>
+                          );
+                        } else {
+                          const rep = item as Repayment;
+                          return (
+                            <tr key={idx}>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{date}</td>
+                              <td style={{ border: '2px solid black', padding: '8px' }}>
+                                <div style={{ fontWeight: 'bold' }}>سداد / قبض</div>
+                                <div style={{ fontSize: '12px', color: 'black', fontWeight: 'bold', marginTop: '4px' }}>
+                                  {rep.method === 'cash' ? 'نقداً' : 'شيك'} {rep.note && ` - ${rep.note}`}
+                                </div>
+                              </td>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{displayedSader}</td>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{displayedWared}</td>
+                              <td style={{ border: '2px solid black', padding: '8px', fontWeight: 'bold' }}>{balanceText}</td>
+                            </tr>
+                          );
+                        }
+                      });
+                    })()}
                   </tbody>
                 </table>
                 {shareHistoryData.history.length > 15 && (

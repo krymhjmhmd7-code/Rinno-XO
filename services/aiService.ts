@@ -25,13 +25,13 @@ export const analyzeBusinessData = async (
     
     // Prepare a summary for the AI (avoid sending too much raw data)
     const totalSales = invoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
-    const lowStock = products.filter(p => p.stock <= p.minStock).map(p => p.name);
+    const activeProducts = products.filter(p => p.isActive !== false).map(p => p.name);
     const topCustomers = customers.sort((a, b) => b.totalPurchases - a.totalPurchases).slice(0, 3).map(c => `${c.name} (${c.type})`);
     
     const prompt = `
       بصفتك مستشار أعمال خبير لشركة توزيع غاز في فلسطين، قم بتحليل البيانات التالية باختصار وقدم نصيحة واحدة استراتيجية:
       - إجمالي المبيعات: ${totalSales} شيكل
-      - المنتجات (الأنواع) منخفضة المخزون: ${lowStock.join(', ') || 'لا يوجد'}
+      - المنتجات النشطة: ${activeProducts.join(', ') || 'لا يوجد'}
       - أفضل العملاء: ${topCustomers.join(', ')}
       
       الرد يجب أن يكون باللغة العربية، احترافي، وموجه لصاحب العمل.

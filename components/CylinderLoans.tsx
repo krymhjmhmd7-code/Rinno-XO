@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Product, CylinderTransaction } from '../types';
 import { storageService } from '../services/storage';
 import { Repeat, Search, ArrowUpRight, ArrowDownLeft, Cylinder, CheckCircle, AlertCircle, Trash2, History, X } from 'lucide-react';
+import { useDeletePassword } from '../hooks/useDeletePassword';
+import { DeletePasswordModal } from './DeletePasswordModal';
 
 interface CylinderLoansProps {
   customers: Customer[];
@@ -27,13 +29,17 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   // Edit/Delete State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-
-  // Password Protection State
-  const [showDeletePassword, setShowDeletePassword] = useState(false);
-  const [deletePasswordInput, setDeletePasswordInput] = useState('');
-  const [deletePasswordError, setDeletePasswordError] = useState('');
-  const [pendingDeleteTx, setPendingDeleteTx] = useState<CylinderTransaction | null>(null);
+  // Delete verification state is handled by useDeletePassword instead of confirmDeleteId
+  
+  const {
+    showPasswordModal,
+    passwordInput,
+    passwordError,
+    setPasswordInput,
+    requestDelete,
+    verifyAndExecute,
+    cancelDelete
+  } = useDeletePassword();
 
   useEffect(() => {
     setTransactions(storageService.getCylinderTransactions());
@@ -112,7 +118,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
     }
 
     const tx: CylinderTransaction = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       customerId: selectedCustomerId,
       customerName: customer.name,
       productName: selectedProductName,
@@ -133,33 +139,12 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
-  // Filter customers for the list view
   const handleDelete = (tx: CylinderTransaction) => {
-    const settings = storageService.getSettings();
-    const delPassword = settings.deletePassword || '1234';
-    setPendingDeleteTx(tx);
-    setShowDeletePassword(true);
-    setDeletePasswordInput('');
-    setDeletePasswordError('');
-  };
-
-  const performDelete = (tx: CylinderTransaction) => {
-    storageService.deleteCylinderTransaction(tx.id, tx.customerId);
-    setTransactions(storageService.getCylinderTransactions());
-    onUpdate();
-    setConfirmDeleteId(null);
-    setShowDeletePassword(false);
-    setPendingDeleteTx(null);
-  };
-
-  const verifyDeletePassword = () => {
-    const settings = storageService.getSettings();
-    const delPassword = settings.deletePassword || '1234';
-    if (deletePasswordInput === delPassword) {
-      if (pendingDeleteTx) performDelete(pendingDeleteTx);
-    } else {
-      setDeletePasswordError('كلمة المرور خاطئة');
-    }
+    requestDelete(() => {
+      storageService.deleteCylinderTransaction(tx.id, tx.customerId);
+      setTransactions(storageService.getCylinderTransactions());
+      onUpdate();
+    });
   };
 
   const handleUpdateDate = (id: string) => {
@@ -176,21 +161,25 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
   const startEdit = (tx: CylinderTransaction) => {
     setEditingId(tx.id);
     setEditDate(new Date(tx.date).toISOString().split('T')[0]);
-    setConfirmDeleteId(null);
+    
   };
 
-  const filteredCustomers = customers.filter(c => {
-    const hasActiveLoan = c.cylinderBalance && Object.values(c.cylinderBalance).some(v => v !== 0);
-    const matchesSearch = c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.serialNumber.toString().includes(searchTerm);
-    if (searchTerm) return matchesSearch;
-    return hasActiveLoan;
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => {
+      const hasActiveLoan = c.cylinderBalance && Object.values(c.cylinderBalance).some(v => v !== 0);
+      const matchesSearch = c.name.includes(searchTerm) || c.phone.includes(searchTerm) || c.serialNumber.toString().includes(searchTerm);
+      if (searchTerm) return matchesSearch;
+      return hasActiveLoan;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [customers, searchTerm]);
 
-  const totalCylindersOut = customers.reduce((sum, c) => {
-    if (!c.cylinderBalance) return sum;
-    const custTotal = Object.values(c.cylinderBalance).reduce((s: number, v: number) => s + v, 0);
-    return sum + custTotal;
-  }, 0);
+  const totalCylindersOut = useMemo(() => {
+    return customers.reduce((sum, c) => {
+      if (!c.cylinderBalance) return sum;
+      const custTotal = Object.values(c.cylinderBalance).reduce((s: number, v: number) => s + v, 0);
+      return sum + custTotal;
+    }, 0);
+  }, [customers]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -432,7 +421,7 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {transactions.length === 0 ? (
-                    <tr><td colSpan={6} className="p-8 text-center text-gray-400">لا توجد حركات مسجلة.</td></tr>
+                    <tr><td colSpan={7} className="p-8 text-center text-gray-400">لا توجد حركات مسجلة.</td></tr>
                   ) : (
                     transactions
                       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -480,30 +469,13 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
                           </td>
                           <td className="p-3 text-sm text-gray-500">{tx.note || '-'}</td>
                           <td className="p-3">
-                            {confirmDeleteId === tx.id ? (
-                              <div className="flex items-center gap-1 bg-red-50 p-1 rounded border border-red-200 w-fit">
-                                <button
-                                  onClick={() => handleDelete(tx)}
-                                  className="text-white bg-red-600 px-2 rounded text-xs hover:bg-red-700"
-                                >
-                                  حذف
-                                </button>
-                                <button
-                                  onClick={() => setConfirmDeleteId(null)}
-                                  className="text-gray-600 bg-white px-1 border rounded text-xs hover:bg-gray-50"
-                                >
-                                  إلغاء
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmDeleteId(tx.id)}
-                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                                title="حذف الحركة"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleDelete(tx)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              title="حذف الحركة"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -516,29 +488,14 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
       </div>
 
       {/* Password Prompt Modal */}
-      {showDeletePassword && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
-            <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لإتمام الحذف.</p>
-            <input
-              type="password"
-              className={`w-full p-2 border rounded mb-2 ${deletePasswordError ? 'border-red-500 bg-red-50' : ''}`}
-              placeholder="كلمة المرور"
-              value={deletePasswordInput}
-              onChange={e => {
-                setDeletePasswordInput(e.target.value);
-                setDeletePasswordError('');
-              }}
-            />
-            {deletePasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{deletePasswordError}</p>}
-            <div className="flex gap-2">
-              <button onClick={verifyDeletePassword} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
-              <button onClick={() => { setShowDeletePassword(false); setConfirmDeleteId(null); }} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeletePasswordModal
+        show={showPasswordModal}
+        passwordInput={passwordInput}
+        passwordError={passwordError}
+        onPasswordChange={setPasswordInput}
+        onConfirm={verifyAndExecute}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 };

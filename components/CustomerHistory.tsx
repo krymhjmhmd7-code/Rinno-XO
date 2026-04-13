@@ -1,6 +1,8 @@
 import React from 'react';
 import { Customer, Product, Invoice, Repayment } from '../types';
 import { History, X, Printer, Share2, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { useDeletePassword } from '../hooks/useDeletePassword';
+import { DeletePasswordModal } from './DeletePasswordModal';
 import { storageService } from '../services/storage';
 
 // Union type for History Items
@@ -36,19 +38,21 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     // State for Editing
     const [editingId, setEditingId] = React.useState<string | null>(null);
     const [editDate, setEditDate] = React.useState('');
-    const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
-
-    // Password Protection State
-    const [showDeletePassword, setShowDeletePassword] = React.useState(false);
-    const [deletePasswordInput, setDeletePasswordInput] = React.useState('');
-    const [deletePasswordError, setDeletePasswordError] = React.useState('');
-    const [pendingDeleteItem, setPendingDeleteItem] = React.useState<{type: 'invoice' | 'repayment', id: string} | null>(null);
+    const {
+        showPasswordModal,
+        passwordInput,
+        passwordError,
+        setPasswordInput,
+        requestDelete,
+        verifyAndExecute,
+        cancelDelete
+    } = useDeletePassword();
 
     const handleStartEdit = (item: HistoryItem) => {
         setEditingId(item.id);
         const dateStr = new Date(item.date).toISOString().split('T')[0]; // YYYY-MM-DD
         setEditDate(dateStr);
-        setConfirmDeleteId(null);
+        
     };
 
     const handleSaveEdit = (item: HistoryItem) => {
@@ -67,39 +71,46 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
     };
 
     const handleConfirmDelete = (type: 'invoice' | 'repayment', id: string) => {
-        const settings = storageService.getSettings();
-        const delPassword = settings.deletePassword || '1234';
-        setPendingDeleteItem({ type, id });
-        setShowDeletePassword(true);
-        setDeletePasswordInput('');
-        setDeletePasswordError('');
+        requestDelete(() => {
+            onDeleteTransaction(type, id, customer.id);
+        });
     };
+    // 1. Sort ascending to calculate prefix sum (chronological order)
+    const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // 2. Map running balances
+    let currentBalance = 0;
+    const ledgerHistory = sortedHistory.map(item => {
+        let diff = 0;
+        let displayedSader: string | number = '-';
+        let displayedWared: string | number = '-';
 
-    const verifyPasswordAndDelete = () => {
-        const settings = storageService.getSettings();
-        const delPassword = settings.deletePassword || '1234';
-        if (deletePasswordInput === delPassword) {
-            if (pendingDeleteItem) {
-                onDeleteTransaction(pendingDeleteItem.type, pendingDeleteItem.id, customer.id);
-            }
-            setShowDeletePassword(false);
-            setPendingDeleteItem(null);
-            setConfirmDeleteId(null);
-        } else {
-            setDeletePasswordError('كلمة المرور خاطئة');
-        }
-    };
-    const calculatedBalance = history.reduce((acc, item) => {
         if (item.type === 'invoice') {
             const inv = item as Invoice;
-            // Add debt amount (totalAmount - payments)
-            return acc + (inv.paymentDetails?.debt || 0);
+            diff = inv.paymentDetails?.debt || 0;
+            displayedSader = inv.totalAmount > 0 ? inv.totalAmount : '-';
+            const paid = (inv.paymentDetails?.cash || 0) + (inv.paymentDetails?.cheque || 0);
+            displayedWared = paid > 0 ? paid : '-';
         } else {
             const rep = item as Repayment;
-            // Subtract repayment
-            return acc - rep.amount;
+            diff = -rep.amount;
+            displayedWared = rep.amount > 0 ? rep.amount : '-';
         }
-    }, 0);
+        
+        currentBalance += diff;
+        
+        return {
+            originalItem: item,
+            runningBalance: currentBalance,
+            displayedSader,
+            displayedWared,
+            diff
+        };
+    });
+
+    // 3. Reverse back to descending for standard list display (newest first)
+    ledgerHistory.reverse();
+    const calculatedBalance = currentBalance;
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -140,28 +151,30 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
 
                 <div className="flex-1 overflow-y-auto border rounded-lg">
                     <table className="w-full text-right text-sm">
-                        <thead className="bg-gray-100 text-gray-700 sticky top-0">
+                        <thead className="bg-gray-100 text-gray-700 sticky top-0 z-10">
                             <tr>
-                                <th className="p-4">التاريخ</th>
-                                <th className="p-4">نوع الحركة</th>
-                                <th className="p-4">التفاصيل / البيان</th>
-                                <th className="p-4">مدين (عليه)</th>
-                                <th className="p-4">دائن (له)</th>
-                                <th className="p-4">أدوات</th>
+                                <th className="p-4 font-bold border-b border-gray-200 text-gray-900 border-l">التاريخ</th>
+                                <th className="p-4 font-bold border-b border-gray-200 text-gray-900 border-l">نوع الحركة</th>
+                                <th className="p-4 font-bold border-b border-gray-200 text-gray-900 border-l">البيان</th>
+                                <th className="p-4 font-black border-b border-gray-200 text-gray-900 border-l">صادر <span className="text-gray-500 font-normal">[-]</span></th>
+                                <th className="p-4 font-black border-b border-gray-200 text-gray-900 border-l">وارد <span className="text-gray-500 font-normal">[+]</span></th>
+                                <th className="p-4 font-black border-b border-gray-200 text-gray-900 border-l">الرصيد التراكمي</th>
+                                <th className="p-4 font-bold border-b border-gray-200 text-gray-900">أدوات</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {history.length === 0 ? (
                                 <tr><td colSpan={6} className="p-8 text-center text-gray-500 text-lg">لا توجد حركات مسجلة لهذا الزبون.</td></tr>
                             ) : (
-                                history.map(item => {
+                                ledgerHistory.map(ledgerRow => {
+                                    const item = ledgerRow.originalItem;
                                     const isInvoice = item.type === 'invoice';
                                     const inv = item as Invoice;
                                     const rep = item as Repayment;
 
                                     return (
                                         <tr key={item.id} className={`hover:bg-gray-50 ${isInvoice ? '' : 'bg-green-50/50'}`}>
-                                            <td className="p-4 text-gray-600">
+                                            <td className="p-4 text-gray-800 border-l font-bold">
                                                 {editingId === item.id ? (
                                                     <div className="flex items-center gap-1">
                                                         <input
@@ -187,43 +200,57 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                                                 )}
                                             </td>
 
-                                            <td className="p-4">
+                                            <td className="p-4 border-l">
                                                 {isInvoice ? (
                                                     <div className="flex items-center gap-2 text-gray-800 font-bold">
-                                                        <ArrowUpRight size={16} className="text-red-400" />
+                                                        <ArrowUpRight size={16} className="text-gray-400" />
                                                         فاتورة #{inv.id.slice(-6)}
                                                     </div>
                                                 ) : (
-                                                    <div className="flex items-center gap-2 text-green-700 font-bold">
-                                                        <ArrowDownLeft size={16} />
+                                                    <div className="flex items-center gap-2 text-gray-800 font-bold">
+                                                        <ArrowDownLeft size={16} className="text-gray-400" />
                                                         سداد / قبض
                                                     </div>
                                                 )}
                                             </td>
 
-                                            <td className="p-4">
+                                            <td className="p-4 border-l">
                                                 {isInvoice ? (
                                                     <div className="flex flex-col">
                                                         {inv.items.map((i, idx) => (
-                                                            <span key={idx} className="text-gray-600 text-xs">{i.productName} ({i.quantity})</span>
+                                                            <span key={idx} className="text-gray-600 text-xs font-bold">{i.productName} ({i.quantity})</span>
                                                         ))}
                                                     </div>
                                                 ) : (
-                                                    <div className="text-green-800">
+                                                    <div className="text-gray-600 font-bold">
                                                         {rep.method === 'cash' ? 'نقداً' : 'شيك'}
-                                                        {rep.note && <span className="text-gray-500 text-xs block">{rep.note}</span>}
+                                                        {rep.note && <span className="text-gray-500 text-xs block font-normal">{rep.note}</span>}
                                                     </div>
                                                 )}
                                             </td>
 
                                             {/* Debt (Charge) Column */}
-                                            <td className="p-4 font-mono text-base font-bold text-red-600">
-                                                {isInvoice ? inv.totalAmount : '-'}
+                                            <td className="p-4 font-mono text-base font-black text-gray-800 border-l">
+                                                {ledgerRow.displayedSader !== '-' && <span className="text-gray-500 ml-1 text-xs font-normal">[-]</span>}
+                                                {ledgerRow.displayedSader}
                                             </td>
 
                                             {/* Credit (Payment) Column */}
-                                            <td className="p-4 font-mono text-base font-bold text-green-600">
-                                                {isInvoice ? (inv.paymentDetails.cash + inv.paymentDetails.cheque || '-') : rep.amount}
+                                            <td className="p-4 font-mono text-base font-black text-gray-800 border-l">
+                                                {ledgerRow.displayedWared !== '-' && <span className="text-gray-500 ml-1 text-xs font-normal">[+]</span>}
+                                                {ledgerRow.displayedWared}
+                                            </td>
+                                            
+                                            {/* Running Balance Column */}
+                                            <td className="p-4 font-mono text-base font-black border-l">
+                                                <div className="flex flex-col">
+                                                    <span className={ledgerRow.runningBalance > 0 ? "text-gray-900" : ledgerRow.runningBalance < 0 ? "text-gray-900" : "text-gray-500"}>
+                                                        {Math.abs(ledgerRow.runningBalance)} 
+                                                        <span className="mr-1 text-xs font-normal">
+                                                            {ledgerRow.runningBalance > 0 ? '(عليه)' : ledgerRow.runningBalance < 0 ? '(له)' : '-'}
+                                                        </span>
+                                                    </span>
+                                                </div>
                                             </td>
 
                                             <td className="p-4">
@@ -248,31 +275,13 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                                                     )}
 
                                                     {/* Delete Button */}
-                                                    {confirmDeleteId === item.id ? (
-                                                        <div className="flex items-center gap-1 bg-red-50 p-1 rounded border border-red-200">
-                                                            <span className="text-xs text-red-600 font-bold">تأكيد?</span>
-                                                            <button
-                                                                onClick={() => handleConfirmDelete(isInvoice ? 'invoice' : 'repayment', item.id)}
-                                                                className="text-white bg-red-600 px-2 rounded text-xs hover:bg-red-700"
-                                                            >
-                                                                نعم
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setConfirmDeleteId(null)}
-                                                                className="text-gray-600 bg-white px-1 border rounded text-xs hover:bg-gray-50"
-                                                            >
-                                                                لا
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => setConfirmDeleteId(item.id)}
+                                                    <button
+                                                            onClick={() => handleConfirmDelete(isInvoice ? 'invoice' : 'repayment', item.id)}
                                                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                                                             title="حذف الحركة"
                                                         >
                                                             <X size={16} />
                                                         </button>
-                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -284,29 +293,14 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                 </div>
             </div>
             {/* Password Prompt Modal */}
-            {showDeletePassword && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-                    <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-                        <h3 className="font-bold text-lg mb-4 text-red-600">تأكيد الحذف</h3>
-                        <p className="text-gray-600 mb-4 text-sm">أدخل كلمة مرور المسؤول لإتمام الحذف.</p>
-                        <input
-                            type="password"
-                            className={`w-full p-2 border rounded mb-2 ${deletePasswordError ? 'border-red-500 bg-red-50' : ''}`}
-                            placeholder="كلمة المرور"
-                            value={deletePasswordInput}
-                            onChange={e => {
-                                setDeletePasswordInput(e.target.value);
-                                setDeletePasswordError('');
-                            }}
-                        />
-                        {deletePasswordError && <p className="text-red-600 text-xs mb-4 font-bold">{deletePasswordError}</p>}
-                        <div className="flex gap-2">
-                            <button onClick={verifyPasswordAndDelete} className="flex-1 bg-red-600 text-white py-2 rounded">حذف</button>
-                            <button onClick={() => { setShowDeletePassword(false); setConfirmDeleteId(null); }} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded">إلغاء</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DeletePasswordModal
+                show={showPasswordModal}
+                passwordInput={passwordInput}
+                passwordError={passwordError}
+                onPasswordChange={setPasswordInput}
+                onConfirm={verifyAndExecute}
+                onCancel={cancelDelete}
+            />
         </div>
     );
 };
