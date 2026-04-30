@@ -133,7 +133,8 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
       neighborhood: formData.neighborhood || '',
       totalPurchases: existing ? (existing.totalPurchases || 0) : 0,
       balance: existing ? (existing.balance || 0) : 0,
-      cylinderBalance: existing ? (existing.cylinderBalance || {}) : {}
+      cylinderBalance: existing ? (existing.cylinderBalance || {}) : {},
+      updatedAt: new Date().toISOString()
     };
 
     if (editingId) {
@@ -170,11 +171,12 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
     requestDelete(() => {
       storageService.moveToRecycleBin('customer', customer, `زبون: ${customer.name} (#${customer.serialNumber})`);
-      onUpdate(customers.filter(c => c.id !== id));
+      // Reload from storage (soft-deleted records are filtered out by getCustomers)
+      onUpdate(storageService.getCustomers());
     });
   };
 
-  const openHistory = (c: Customer) => {
+  const reloadHistory = (c: Customer) => {
     const allInvoices = storageService.getInvoices();
     const allRepayments = storageService.getRepayments();
 
@@ -194,6 +196,20 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
 
     setCustomerHistory(combined);
     setSelectedHistoryCustomer(c);
+  };
+
+  // BUG-47 FIX: Automatically reload history if the modal is open and customers update (e.g. from sync or restore)
+  useEffect(() => {
+    if (showHistoryModal && selectedHistoryCustomer) {
+      const updatedCustomer = customers.find(c => c.id === selectedHistoryCustomer.id);
+      if (updatedCustomer) {
+        reloadHistory(updatedCustomer);
+      }
+    }
+  }, [customers, showHistoryModal]);
+
+  const openHistory = (c: Customer) => {
+    reloadHistory(c);
     setShowHistoryModal(true);
   };
 
@@ -655,7 +671,8 @@ export const Customers: React.FC<CustomersProps> = ({ customers, products, onUpd
                 <div style={{ fontSize: '28px', marginTop: '8px' }}>
                   {shareHistoryData.customer.balance > 0 ?
                     `${shareHistoryData.customer.balance} (عليه)` :
-                    `${Math.abs(shareHistoryData.customer.balance)} (له)`}
+                    shareHistoryData.customer.balance < 0 ?
+                    `${Math.abs(shareHistoryData.customer.balance)} (له)` : '0'}
                 </div>
               </div>
 

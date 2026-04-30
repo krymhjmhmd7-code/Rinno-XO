@@ -119,15 +119,16 @@ export const idbStorage = {
 
     console.log('[idbStorage] Migrating data from localStorage to IndexedDB...');
     
+    // BUG-35 FIX: Keys must match KEYS in storage.ts (gaspro_ prefix, not rinno_)
     const keysToMigrate = [
-      'rinno_customers',
-      'rinno_products', 
-      'rinno_invoices',
-      'rinno_repayments',
-      'rinno_cylinder_transactions',
-      'rinno_customer_types',
-      'rinno_settings',
-      'rinno_recycle_bin',
+      'gaspro_customers',
+      'gaspro_products', 
+      'gaspro_invoices',
+      'gaspro_repayments',
+      'gaspro_cylinder_transactions',
+      'gaspro_customer_types',
+      'gaspro_settings',
+      'gaspro_recycle_bin',
       'rinno_user',
       'rinno_user_email',
       'rinno_user_name',

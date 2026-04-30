@@ -46,5 +46,8 @@ ts-debug.log*
 .vercel
 .env*.local
 
+# JVM crash logs
+hs_err_pid*.log
+
 # Update Archive
 update/

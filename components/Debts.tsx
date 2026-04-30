@@ -26,10 +26,11 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
   const [note, setNote] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // BUG-28 FIX: Reload data when customers change (triggered by onUpdate/refreshData)
   useEffect(() => {
     setRepayments(storageService.getRepayments());
     setInvoices(storageService.getInvoices());
-  }, []);
+  }, [customers]);
 
   // Auto-select customer if provided via navigation
   useEffect(() => {
@@ -114,7 +115,8 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
       amount: Number(amount),
       date: new Date().toISOString(),
       method,
-      note
+      note,
+      updatedAt: new Date().toISOString()
     };
 
     storageService.addRepayment(newRepayment);
@@ -153,7 +155,7 @@ export const Debts: React.FC<DebtsProps> = ({ customers, onUpdate, initialCustom
     setSelectedCustomerId(customer.id);
     // If adding debt, clear amount. If repaying, maybe suggest amount?
     if (activeTab === 'repay' && customer.balance > 0) {
-      setAmount(customer.balance);
+      setAmount(String(customer.balance));
     } else {
       setAmount('');
     }

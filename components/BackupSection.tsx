@@ -80,7 +80,6 @@ export const BackupSection: React.FC<BackupSectionProps> = ({ settings, setSetti
             }}
             className="bg-green-50 text-green-700 border border-green-200 px-4 py-2 rounded-lg hover:bg-green-100 flex items-center gap-2 flex-1 justify-center"
           >
-            <div className="w-1 h-1 bg-green-500 rounded-full animate-ping absolute top-0 right-0"></div>
             <Cloud size={18} />
             مشاركة (WhatsApp)
           </button>

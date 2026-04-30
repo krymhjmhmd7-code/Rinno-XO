@@ -13,6 +13,8 @@ export interface Customer {
     totalPurchases: number;
     balance: number;
     cylinderBalance?: { [productName: string]: number };
+    isDeleted?: boolean;
+    updatedAt?: string;
 }
 
 export interface Product {
@@ -47,6 +49,8 @@ export interface Invoice {
     totalAmount: number;
     paymentDetails: PaymentDetails;
     status: 'paid' | 'debt' | 'partial';
+    isDeleted?: boolean;
+    updatedAt?: string;
 }
 
 export interface Repayment {
@@ -57,6 +61,8 @@ export interface Repayment {
     date: string;
     method: 'cash' | 'cheque';
     note?: string;
+    isDeleted?: boolean;
+    updatedAt?: string;
 }
 
 export interface CylinderTransaction {

@@ -18,13 +18,16 @@
     "@google/genai": "latest",
     "@libsql/client": "^0.15.15",
     "@react-oauth/google": "^0.13.4",
+    "@tailwindcss/vite": "^4.2.4",
     "drizzle-orm": "^0.45.1",
     "html2canvas": "^1.4.1",
     "idb": "^8.0.3",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^4.2.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",

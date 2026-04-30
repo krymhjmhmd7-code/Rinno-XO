@@ -131,7 +131,11 @@ export const ConnectionStatusSection: React.FC = () => {
               const local = localStorage.getItem('last_reset_timestamp');
               if (ts && ts !== local) {
                 if (confirm(`Detected remote reset mismatch.\nServer: ${ts}\nLocal: ${local}\nWipe now?`)) {
-                  localStorage.clear();
+                  // BUG-40 FIX: Only clear Rinno keys, not ALL localStorage
+                  ['gaspro_customers','gaspro_products','gaspro_invoices','gaspro_repayments',
+                   'gaspro_cylinder_transactions','gaspro_settings','gaspro_customer_types',
+                   'gaspro_recycle_bin','rinno_user','rinno_user_email','rinno_draft_cart',
+                   'last_reset_timestamp'].forEach(k => localStorage.removeItem(k));
                   window.location.reload();
                 }
               } else {

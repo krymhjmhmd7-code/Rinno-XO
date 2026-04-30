@@ -1,9 +1,8 @@
-import { Customer, Product, Invoice, AppSettings, Repayment, CylinderTransaction } from '../types';
+import { Customer, Product, Invoice, AppSettings, Repayment, CylinderTransaction, SoftDeletedRecord } from '../types';
 import { dataService, userService, isDatabaseConfigured } from './dbService';
 import { idbStorage } from './idbStorage';
+import * as XLSX from 'xlsx';
 
-// Declare XLSX for TypeScript (loaded via CDN)
-declare const XLSX: any;
 
 const KEYS = {
   CUSTOMERS: 'gaspro_customers',
@@ -32,16 +31,7 @@ const persistItem = (key: string, value: string): void => {
   );
 };
 
-/**
- * SHA-256 hash for passwords (#8)
- */
-const hashPassword = async (password: string): Promise<string> => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
+
 
 // Initial Seed Data - Empty for production use
 const seedCustomers: Customer[] = [];
@@ -80,17 +70,33 @@ const syncToDb = async (type: string, data: any) => {
       case 'products':
         result = await dataService.saveAllProducts(data);
         break;
-      case 'invoices':
-        // Invoices are appended individually, but if we need full sync:
-        // For now, saveInvoices is rarely called directly for bulk updates except migration.
-        // We will assume 'data' is array here.
-        // Turso implementation for saveAllInvoices is not yet there, skipping or implementing loop?
-        // Let's rely on addInvoice for new ones. 
-        // If this is called, it might be bulk import. 
-        // For safety, let's mark sync needed if we can't handle it, or just return true to not block.
-        // Actually, we should probably implement full sync later if needed.
+      case 'invoices': {
+        // BUG-18 FIX: Sync invoices to cloud (loop with INSERT OR REPLACE)
+        const invoiceArr = Array.isArray(data) ? data : [];
+        for (const inv of invoiceArr) {
+          await dataService.addInvoice(inv);
+        }
         result = true;
         break;
+      }
+      case 'repayments': {
+        // BUG-18 FIX: Sync repayments to cloud
+        const repArr = Array.isArray(data) ? data : [];
+        for (const rep of repArr) {
+          await dataService.addRepayment(rep);
+        }
+        result = true;
+        break;
+      }
+      case 'cylinder_transactions': {
+        // BUG-18 FIX: Sync cylinder transactions to cloud
+        const txArr = Array.isArray(data) ? data : [];
+        for (const tx of txArr) {
+          await dataService.addCylinderTransaction(tx);
+        }
+        result = true;
+        break;
+      }
       case 'settings':
         // Settings sync not fully implemented in DB yet, skipping
         result = true;
@@ -125,7 +131,8 @@ const markSyncDone = () => {
 };
 
 // Helper to merge local and cloud records by ID using timestamps
-const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], cloud: T[]): T[] => {
+// BUG-3 FIX: Respects soft-delete — local deletion always wins over cloud non-deleted
+const mergeById = <T extends { id: string; updatedAt?: string; isDeleted?: boolean }>(local: T[], cloud: T[]): T[] => {
     const merged = new Map<string, T>();
     // Add all cloud items first
     for (const item of cloud) {
@@ -137,13 +144,28 @@ const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], clo
         if (!existing) {
             merged.set(item.id, item);
         } else {
+            // Priority rule: if local is deleted but cloud is not, ALWAYS keep local (preserve deletion)
+            if (item.isDeleted && !existing.isDeleted) {
+                merged.set(item.id, item);
+                continue;
+            }
+            // BUG-44 ROOT FIX: If cloud is deleted but local is not, compare timestamps.
+            // The local copy may have been RESTORED from recycle bin (with a newer updatedAt).
+            // Old code blindly kept cloud deletion, reversing any local restore on next sync!
+            if (existing.isDeleted && !item.isDeleted) {
+                const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+                const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+                if (localTime >= cloudTime) {
+                    merged.set(item.id, item); // Local restore is newer — honor it
+                }
+                continue;
+            }
+            // Otherwise compare timestamps as before
             const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
             const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-            // If local is newer or same age, keep local (preserves offline edits)
             if (localTime >= cloudTime) {
                 merged.set(item.id, item);
             }
-            // Otherwise keep cloud version (it's newer)
         }
     }
     return Array.from(merged.values());
@@ -193,16 +215,25 @@ export const storageService = {
     if (!customersData) return;
 
     let customers: Customer[] = JSON.parse(customersData);
-    const invoices: Invoice[] = JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]');
-    const repayments: Repayment[] = JSON.parse(localStorage.getItem(KEYS.REPAYMENTS) || '[]');
+    // BUG-1 FIX: Filter out soft-deleted invoices/repayments to avoid counting deleted transactions
+    const invoices: Invoice[] = (JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]') as Invoice[]).filter(i => !i.isDeleted);
+    const repayments: Repayment[] = (JSON.parse(localStorage.getItem(KEYS.REPAYMENTS) || '[]') as Repayment[]).filter(r => !r.isDeleted);
 
     let hasChanges = false;
 
     customers = customers.map(customer => {
+      // BUG-17 FIX: Skip soft-deleted customers — don't modify their balances
+      if (customer.isDeleted) return customer;
+
       // Calculate balance from invoices (debt amounts only)
       const invoiceDebt = invoices
         .filter(inv => inv.customerId === customer.id)
         .reduce((sum, inv) => sum + (inv.paymentDetails?.debt || 0), 0);
+
+      // BUG-24 FIX: Calculate totalPurchases excluding manual-debt entries
+      const totalPurchases = invoices
+        .filter(inv => inv.customerId === customer.id && inv.items?.[0]?.productId !== 'manual-debt')
+        .reduce((sum, inv) => sum + inv.totalAmount, 0);
 
       // Calculate payments from repayments
       const totalRepayments = repayments
@@ -211,10 +242,10 @@ export const storageService = {
 
       const correctBalance = invoiceDebt - totalRepayments;
 
-      if (customer.balance !== correctBalance) {
-        console.log(`Correcting balance for ${customer.name}: ${customer.balance} -> ${correctBalance}`);
+      if (customer.balance !== correctBalance || customer.totalPurchases !== totalPurchases) {
+        console.log(`Correcting balance for ${customer.name}: ${customer.balance} -> ${correctBalance}, purchases: ${customer.totalPurchases} -> ${totalPurchases}`);
         hasChanges = true;
-        return { ...customer, balance: correctBalance };
+        return { ...customer, balance: correctBalance, totalPurchases };
       }
       return customer;
     });
@@ -271,12 +302,23 @@ export const storageService = {
       persistItem(KEYS.CUSTOMERS, JSON.stringify(customers));
     }
 
-    return customers;
+    // Filter out soft-deleted customers
+    return customers.filter(c => !c.isDeleted);
+  },
+
+  // Raw getter (includes soft-deleted) for sync and recycle bin
+  getAllCustomersRaw: (): Customer[] => {
+    const data = localStorage.getItem(KEYS.CUSTOMERS);
+    return data ? JSON.parse(data) : [];
   },
 
   saveCustomers: (customers: Customer[]) => {
-    persistItem(KEYS.CUSTOMERS, JSON.stringify(customers));
-    syncToDb('customers', customers);
+    // Preserve soft-deleted records: merge incoming active customers with existing deleted ones
+    const existing = storageService.getAllCustomersRaw();
+    const deletedRecords = existing.filter((c: Customer) => c.isDeleted);
+    const merged = [...customers.filter(c => !c.isDeleted), ...deletedRecords];
+    persistItem(KEYS.CUSTOMERS, JSON.stringify(merged));
+    syncToDb('customers', merged);
   },
 
   getProducts: (): Product[] => {
@@ -289,27 +331,44 @@ export const storageService = {
       isActive: p.isActive !== undefined ? p.isActive : true
     }));
 
-    return products;
+    // Filter out soft-deleted products
+    return products.filter((p: Product) => !p.isDeleted);
+  },
+
+  getAllProductsRaw: (): Product[] => {
+    const data = localStorage.getItem(KEYS.PRODUCTS);
+    return data ? JSON.parse(data) : [];
   },
 
   saveProducts: (products: Product[]) => {
-    persistItem(KEYS.PRODUCTS, JSON.stringify(products));
-    syncToDb('products', products);
+    // Preserve soft-deleted records
+    const existing = storageService.getAllProductsRaw();
+    const deletedRecords = existing.filter((p: Product) => p.isDeleted);
+    const merged = [...products.filter(p => !p.isDeleted), ...deletedRecords];
+    persistItem(KEYS.PRODUCTS, JSON.stringify(merged));
+    syncToDb('products', merged);
   },
 
   getInvoices: (): Invoice[] => {
+    const data = localStorage.getItem(KEYS.INVOICES);
+    const invoices: Invoice[] = data ? JSON.parse(data) : [];
+    return invoices.filter(i => !i.isDeleted);
+  },
+
+  getAllInvoicesRaw: (): Invoice[] => {
     const data = localStorage.getItem(KEYS.INVOICES);
     return data ? JSON.parse(data) : [];
   },
 
   saveInvoices: (invoices: Invoice[]) => {
     persistItem(KEYS.INVOICES, JSON.stringify(invoices));
-    // syncToDb('invoices', invoices); // Not strictly needed for active sync if addInvoice handles it
+    // BUG-49 FIX: Ensure cloud sync when invoices are saved directly
+    syncToDb('invoices', invoices);
   },
 
   addInvoice: (invoice: Invoice) => {
-    // 1. Save Invoice
-    const invoices = storageService.getInvoices();
+    // 1. Save Invoice — BUG-2 FIX: use raw getter to preserve soft-deleted records
+    const invoices = storageService.getAllInvoicesRaw();
     invoices.unshift(invoice);
     persistItem(KEYS.INVOICES, JSON.stringify(invoices));
 
@@ -343,57 +402,26 @@ export const storageService = {
   },
 
   deleteInvoice: (id: string, customerId: string) => {
-    // 1. Get current list and find the invoice
+    // 1. Get the invoice to revert customer stats
     const invoices = storageService.getInvoices();
-    const invoiceIndex = invoices.findIndex(i => i.id === id);
-    if (invoiceIndex === -1) return;
+    const invoice = invoices.find(i => i.id === id);
+    if (!invoice) return;
 
-    const invoice = invoices[invoiceIndex];
-
-    // Save to recycle bin before deleting
+    // 2. Soft-delete the invoice (marks it in-place)
     storageService.moveToRecycleBin('invoice', invoice, `فاتورة - ${invoice.customerName} - ${invoice.totalAmount} شيكل`);
 
-    // 2. Remove Invoice
-    invoices.splice(invoiceIndex, 1);
-    persistItem(KEYS.INVOICES, JSON.stringify(invoices));
-
-    // 3. Revert Customer Stats & Balance
-    const customers = storageService.getCustomers();
-    const customerIndex = customers.findIndex(c => c.id === customerId);
-
-    if (customerIndex !== -1) {
-      const customer = customers[customerIndex];
-
-      // Revert Total Purchases
-      customer.totalPurchases = Math.max(0, (customer.totalPurchases || 0) - invoice.totalAmount);
-
-      // Revert Balance (Subtract amount that was added as debt)
-      if (invoice.paymentDetails && invoice.paymentDetails.debt !== 0) {
-        customer.balance = (customer.balance || 0) - invoice.paymentDetails.debt;
-      }
-
-      customers[customerIndex] = customer;
-      storageService.saveCustomers(customers);
-    }
-
-    // 4. Sync with DB
-    if (isDatabaseConfigured()) {
-      dataService.deleteInvoice(id)
-        .then(res => !res && markSyncNeeded())
-        .catch(() => markSyncNeeded());
-    } else {
-      markSyncNeeded();
-    }
+    // 3. BUG-43 FIX: Use recalculate instead of manual arithmetic to prevent negative/wrong balances
+    storageService.recalculateCustomerBalances();
   },
 
   updateInvoiceDate: (id: string, newDate: string) => {
-    const invoices = storageService.getInvoices();
+    // BUG-5 FIX: use raw getter to preserve soft-deleted records
+    const invoices = storageService.getAllInvoicesRaw();
     const invoiceIndex = invoices.findIndex(i => i.id === id);
     if (invoiceIndex === -1) return;
 
     invoices[invoiceIndex].date = newDate;
-    // Re-sort to maintain order if necessary, but UI usually sorts. Array order in storage doesn't strictly matter if we always sort on display.
-    // However, for consistency let's keep it somewhat ordered or just save.
+    invoices[invoiceIndex].updatedAt = new Date().toISOString();
     persistItem(KEYS.INVOICES, JSON.stringify(invoices));
 
     if (isDatabaseConfigured()) {
@@ -423,19 +451,26 @@ export const storageService = {
         cash: 0,
         cheque: 0,
         debt: amount
-      }
+      },
+      updatedAt: new Date().toISOString()
     };
     storageService.addInvoice(invoice);
   },
 
   getRepayments: (): Repayment[] => {
     const data = localStorage.getItem(KEYS.REPAYMENTS);
+    const repayments: Repayment[] = data ? JSON.parse(data) : [];
+    return repayments.filter(r => !r.isDeleted);
+  },
+
+  getAllRepaymentsRaw: (): Repayment[] => {
+    const data = localStorage.getItem(KEYS.REPAYMENTS);
     return data ? JSON.parse(data) : [];
   },
 
   addRepayment: (repayment: Repayment) => {
-    // 1. Save Repayment Record
-    const repayments = storageService.getRepayments();
+    // 1. Save Repayment Record — BUG-2 FIX: use raw getter to preserve soft-deleted records
+    const repayments = storageService.getAllRepaymentsRaw();
     repayments.unshift(repayment);
     persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
 
@@ -462,49 +497,26 @@ export const storageService = {
   },
 
   deleteRepayment: (id: string, customerId: string) => {
-    // 1. Get current list and find repayment
+    // 1. Get the repayment to revert customer stats
     const repayments = storageService.getRepayments();
-    const index = repayments.findIndex(r => r.id === id);
-    if (index === -1) return;
+    const repayment = repayments.find(r => r.id === id);
+    if (!repayment) return;
 
-    const repayment = repayments[index];
-
-    // Save to recycle bin before deleting
+    // 2. Soft-delete the repayment (marks it in-place)
     storageService.moveToRecycleBin('repayment', repayment, `سداد ${repayment.amount} شيكل - ${repayment.customerName}`);
 
-    // 2. Remove
-    repayments.splice(index, 1);
-    persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
-
-    // 3. Revert Customer Balance
-    const customers = storageService.getCustomers();
-    const customerIndex = customers.findIndex(c => c.id === customerId);
-
-    if (customerIndex !== -1) {
-      const customer = customers[customerIndex];
-      // Add balance back (Debt increases back because we removed a payment)
-      customer.balance = (customer.balance || 0) + repayment.amount;
-
-      customers[customerIndex] = customer;
-      storageService.saveCustomers(customers);
-    }
-
-    // 4. Sync
-    if (isDatabaseConfigured()) {
-      dataService.deleteRepayment(id)
-        .then(res => !res && markSyncNeeded())
-        .catch(() => markSyncNeeded());
-    } else {
-      markSyncNeeded();
-    }
+    // 3. BUG-43 FIX: Use recalculate instead of manual arithmetic
+    storageService.recalculateCustomerBalances();
   },
 
   updateRepaymentDate: (id: string, newDate: string) => {
-    const repayments = storageService.getRepayments();
+    // BUG-5 FIX: use raw getter to preserve soft-deleted records
+    const repayments = storageService.getAllRepaymentsRaw();
     const index = repayments.findIndex(r => r.id === id);
     if (index === -1) return;
 
     repayments[index].date = newDate;
+    repayments[index].updatedAt = new Date().toISOString();
     persistItem(KEYS.REPAYMENTS, JSON.stringify(repayments));
 
     if (isDatabaseConfigured()) {
@@ -519,12 +531,18 @@ export const storageService = {
   // --- Cylinder Transactions ---
   getCylinderTransactions: (): CylinderTransaction[] => {
     const data = localStorage.getItem(KEYS.CYLINDER_TX);
+    const txs: CylinderTransaction[] = data ? JSON.parse(data) : [];
+    return txs.filter(t => !t.isDeleted);
+  },
+
+  getAllCylinderTransactionsRaw: (): CylinderTransaction[] => {
+    const data = localStorage.getItem(KEYS.CYLINDER_TX);
     return data ? JSON.parse(data) : [];
   },
 
   addCylinderTransaction: (tx: CylinderTransaction) => {
-    // 1. Save Transaction
-    const transactions = storageService.getCylinderTransactions();
+    // 1. Save Transaction — BUG-2 FIX: use raw getter to preserve soft-deleted records
+    const transactions = storageService.getAllCylinderTransactionsRaw();
     transactions.unshift(tx);
     persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
 
@@ -560,21 +578,15 @@ export const storageService = {
   },
 
   deleteCylinderTransaction: (id: string, customerId: string) => {
-    // 1. Get list and tx
+    // 1. Get the transaction to revert customer stats
     const transactions = storageService.getCylinderTransactions();
-    const index = transactions.findIndex(t => t.id === id);
-    if (index === -1) return;
+    const tx = transactions.find(t => t.id === id);
+    if (!tx) return;
 
-    const tx = transactions[index];
-
-    // Save to recycle bin before deleting
+    // 2. Soft-delete the transaction (marks it in-place)
     storageService.moveToRecycleBin('cylinder_transaction', tx, `${tx.type === 'out' ? 'إعارة' : 'إرجاع'} ${tx.quantity} ${tx.productName} - ${tx.customerName}`);
 
-    // 2. Remove
-    transactions.splice(index, 1);
-    persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
-
-    // 3. Revert Balance
+    // 3. BUG-42 FIX: Revert cylinder balance using safe recalculation
     const customers = storageService.getCustomers();
     const customerIndex = customers.findIndex(c => c.id === customerId);
 
@@ -585,33 +597,24 @@ export const storageService = {
       const currentVal = customer.cylinderBalance[tx.productName] || 0;
 
       if (tx.type === 'out') {
-        // Was 'out' (added to debt), so subtact
-        customer.cylinderBalance[tx.productName] = currentVal - tx.quantity;
+        customer.cylinderBalance[tx.productName] = Math.max(0, currentVal - tx.quantity);
       } else {
-        // Was 'in' (removed from debt), so add back
         customer.cylinderBalance[tx.productName] = currentVal + tx.quantity;
       }
 
       customers[customerIndex] = customer;
       storageService.saveCustomers(customers);
     }
-
-    // 4. Sync
-    if (isDatabaseConfigured()) {
-      dataService.deleteCylinderTransaction(id)
-        .then(res => !res && markSyncNeeded())
-        .catch(() => markSyncNeeded());
-    } else {
-      markSyncNeeded();
-    }
   },
 
   updateCylinderTransactionDate: (id: string, newDate: string) => {
-    const transactions = storageService.getCylinderTransactions();
+    // BUG-6 FIX: use raw getter to preserve soft-deleted records
+    const transactions = storageService.getAllCylinderTransactionsRaw();
     const index = transactions.findIndex(t => t.id === id);
     if (index === -1) return;
 
     transactions[index].date = newDate;
+    transactions[index].updatedAt = new Date().toISOString();
     persistItem(KEYS.CYLINDER_TX, JSON.stringify(transactions));
 
     if (isDatabaseConfigured()) {
@@ -670,9 +673,13 @@ export const storageService = {
       persistItem(KEYS.CYLINDER_TX, JSON.stringify(mergedTx));
 
       // 7. Push merged data back to cloud
+      // BUG-23 FIX: Push ALL entity types back to cloud, not just customers/products
       try {
         if (mergedCustomers.length > 0) await dataService.saveAllCustomers(mergedCustomers);
         if (mergedProducts.length > 0) await dataService.saveAllProducts(mergedProducts);
+        for (const inv of mergedInvoices) { await dataService.addInvoice(inv); }
+        for (const rep of mergedRepayments) { await dataService.addRepayment(rep); }
+        for (const tx of mergedTx) { await dataService.addCylinderTransaction(tx); }
       } catch (pushErr) {
         console.warn('Failed to push merged data to cloud:', pushErr);
       }
@@ -693,33 +700,36 @@ export const storageService = {
       const { initializeDatabase } = await import('./dbService');
       await initializeDatabase();
 
+      // BUG-7 FIX: use raw getters to include soft-deleted records in cloud sync
       // 1. Customers
-      const customers = storageService.getCustomers();
+      const customers = storageService.getAllCustomersRaw();
       await dataService.saveAllCustomers(customers);
 
       // 2. Products
-      const products = storageService.getProducts();
+      const products = storageService.getAllProductsRaw();
       await dataService.saveAllProducts(products);
 
-      // 3. Invoices (Batch add - Turso doesn't have bulk insert for these yet in our service, so loop)
-      const invoices = storageService.getInvoices();
+      // 3. Invoices (uses INSERT OR REPLACE)
+      const invoices = storageService.getAllInvoicesRaw();
       for (const inv of invoices) {
         await dataService.addInvoice(inv);
       }
 
       // 4. Repayments
-      const repayments = storageService.getRepayments();
+      const repayments = storageService.getAllRepaymentsRaw();
       for (const rep of repayments) {
         await dataService.addRepayment(rep);
       }
 
       // 5. Cylinder Tx
-      const txs = storageService.getCylinderTransactions();
+      const txs = storageService.getAllCylinderTransactionsRaw();
       for (const tx of txs) {
         await dataService.addCylinderTransaction(tx);
       }
 
       console.log('Active Sync: Data pushed to Turso successfully');
+      // BUG-51 FIX: Clear the sync-needed flag after successful push
+      markSyncDone();
       return true;
     } catch (e) {
       console.error('Failed to sync to DB:', e);
@@ -736,13 +746,19 @@ export const storageService = {
         await dataService.clearDatabase();
       }
 
-      // 2. Clear Local Storage
+      // 2. Clear ALL Local Storage — BUG-22 FIX: clear everything including session/recycle/types
       localStorage.removeItem(KEYS.CUSTOMERS);
       localStorage.removeItem(KEYS.PRODUCTS);
       localStorage.removeItem(KEYS.INVOICES);
       localStorage.removeItem(KEYS.REPAYMENTS);
       localStorage.removeItem(KEYS.CYLINDER_TX);
       localStorage.removeItem(KEYS.SETTINGS);
+      localStorage.removeItem(KEYS.CUSTOMER_TYPES);
+      localStorage.removeItem(KEYS.RECYCLE_BIN);
+      localStorage.removeItem('rinno_user');
+      localStorage.removeItem('rinno_user_email');
+      localStorage.removeItem('rinno_draft_cart');
+      localStorage.removeItem('last_reset_timestamp');
 
       console.log('Factory Reset Complete');
       return true;
@@ -754,12 +770,13 @@ export const storageService = {
 
   // Export Functions
   exportDatabaseToJSON: () => {
+    // BUG-8 FIX: use raw getters to include soft-deleted records in backup
     const data = {
-      customers: storageService.getCustomers(),
-      products: storageService.getProducts(),
-      invoices: storageService.getInvoices(),
-      repayments: storageService.getRepayments(),
-      cylinderTransactions: storageService.getCylinderTransactions(),
+      customers: storageService.getAllCustomersRaw(),
+      products: storageService.getAllProductsRaw(),
+      invoices: storageService.getAllInvoicesRaw(),
+      repayments: storageService.getAllRepaymentsRaw(),
+      cylinderTransactions: storageService.getAllCylinderTransactionsRaw(),
       customerTypes: storageService.getCustomerTypes(),
       settings: storageService.getSettings(),
       exportDate: new Date().toISOString()
@@ -771,19 +788,18 @@ export const storageService = {
     a.href = url;
     a.download = `gaspro_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
+    // BUG-14 FIX: Release ObjectURL to prevent memory leak
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 
   exportDatabaseToExcel: (returnFile: boolean = false) => {
-    if (typeof XLSX === 'undefined') {
-      alert("مكتبة التصدير غير محملة، يرجى التحقق من الانترنت");
-      return;
-    }
 
-    const customers = storageService.getCustomers();
-    const products = storageService.getProducts();
-    const invoices = storageService.getInvoices();
-    const repayments = storageService.getRepayments();
-    const cylinderTx = storageService.getCylinderTransactions();
+    // BUG-30 FIX: use raw getters to include soft-deleted records in Excel backup (consistent with JSON export)
+    const customers = storageService.getAllCustomersRaw();
+    const products = storageService.getAllProductsRaw();
+    const invoices = storageService.getAllInvoicesRaw();
+    const repayments = storageService.getAllRepaymentsRaw();
+    const cylinderTx = storageService.getAllCylinderTransactionsRaw();
 
     // Flatten Invoices for CSV friendly format
     const flattenedInvoices = invoices.map(inv => ({
@@ -885,6 +901,12 @@ export const storageService = {
         persistItem(KEYS.SETTINGS, JSON.stringify(data.settings));
       }
 
+      // BUG-38 FIX: Recalculate balances after import to ensure consistency
+      storageService.recalculateCustomerBalances();
+
+      // Mark sync needed so next sync pushes imported data to cloud
+      markSyncNeeded();
+
       return true;
     } catch (e) {
       console.error("Import failed", e);
@@ -892,89 +914,199 @@ export const storageService = {
     }
   },
 
-  // --- Recycle Bin ---
+  // --- Recycle Bin (Soft Delete) ---
   getCurrentUserEmail: (): string => {
     try {
       return localStorage.getItem('rinno_user_email') || 'غير معروف';
     } catch { return 'غير معروف'; }
   },
 
+  /**
+   * Soft-delete: marks a record with isDeleted=true in its own collection.
+   * No separate recycle bin store needed.
+   */
   moveToRecycleBin: (type: string, data: any, description: string) => {
-    const bin = storageService.getRecycleBin();
-    bin.unshift({
-      id: crypto.randomUUID(),
-      type,
-      data: JSON.parse(JSON.stringify(data)),
-      deletedBy: storageService.getCurrentUserEmail(),
-      deletedAt: new Date().toISOString(),
-      description
+    const now = new Date().toISOString();
+    const deletedBy = storageService.getCurrentUserEmail();
+
+    const markDeleted = (record: any) => ({
+      ...record,
+      isDeleted: true,
+      deletedAt: now,
+      deletedBy,
+      _deleteDescription: description, // stored for RecycleBin UI
+      updatedAt: now,
     });
-    persistItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
-  },
 
-  getRecycleBin: (): any[] => {
-    const data = localStorage.getItem(KEYS.RECYCLE_BIN);
-    return data ? JSON.parse(data) : [];
-  },
-
-  restoreFromRecycleBin: (itemId: string): boolean => {
-    const bin = storageService.getRecycleBin();
-    const index = bin.findIndex((i: any) => i.id === itemId);
-    if (index === -1) return false;
-
-    const item = bin[index];
-    let success = false;
-
-    switch (item.type) {
+    switch (type) {
       case 'customer': {
-        const customers = storageService.getCustomers();
-        if (!customers.find((c: any) => c.id === item.data.id)) {
-          customers.push(item.data);
-          storageService.saveCustomers(customers);
+        const all = storageService.getAllCustomersRaw();
+        const idx = all.findIndex((c: any) => c.id === data.id);
+        if (idx !== -1) {
+          all[idx] = markDeleted(all[idx]);
+          persistItem(KEYS.CUSTOMERS, JSON.stringify(all));
+          syncToDb('customers', all);
         }
-        success = true;
         break;
       }
       case 'product': {
-        const products = storageService.getProducts();
-        if (!products.find((p: any) => p.id === item.data.id)) {
-          products.push(item.data);
-          storageService.saveProducts(products);
+        const all = storageService.getAllProductsRaw();
+        const idx = all.findIndex((p: any) => p.id === data.id);
+        if (idx !== -1) {
+          all[idx] = markDeleted(all[idx]);
+          persistItem(KEYS.PRODUCTS, JSON.stringify(all));
+          syncToDb('products', all);
         }
-        success = true;
         break;
       }
       case 'invoice': {
-        const invoices = storageService.getInvoices();
-        if (!invoices.find((i: any) => i.id === item.data.id)) {
-          storageService.addInvoice(item.data);
+        const all = storageService.getAllInvoicesRaw();
+        const idx = all.findIndex((i: any) => i.id === data.id);
+        if (idx !== -1) {
+          all[idx] = markDeleted(all[idx]);
+          persistItem(KEYS.INVOICES, JSON.stringify(all));
+          syncToDb('invoices', all);
         }
-        success = true;
         break;
       }
       case 'repayment': {
-        const repayments = storageService.getRepayments();
-        if (!repayments.find((r: any) => r.id === item.data.id)) {
-          storageService.addRepayment(item.data);
+        const all = storageService.getAllRepaymentsRaw();
+        const idx = all.findIndex((r: any) => r.id === data.id);
+        if (idx !== -1) {
+          all[idx] = markDeleted(all[idx]);
+          persistItem(KEYS.REPAYMENTS, JSON.stringify(all));
+          syncToDb('repayments', all);
         }
-        success = true;
         break;
       }
       case 'cylinder_transaction': {
-        const txs = storageService.getCylinderTransactions();
-        if (!txs.find((t: any) => t.id === item.data.id)) {
-          storageService.addCylinderTransaction(item.data);
+        const all = storageService.getAllCylinderTransactionsRaw();
+        const idx = all.findIndex((t: any) => t.id === data.id);
+        if (idx !== -1) {
+          all[idx] = markDeleted(all[idx]);
+          persistItem(KEYS.CYLINDER_TX, JSON.stringify(all));
+          syncToDb('cylinder_transactions', all);
         }
-        success = true;
         break;
       }
     }
+  },
 
-    if (success) {
-      bin.splice(index, 1);
-      persistItem(KEYS.RECYCLE_BIN, JSON.stringify(bin));
+  /**
+   * Get all soft-deleted records across all types for RecycleBin UI.
+   */
+  getRecycleBin: (): SoftDeletedRecord[] => {
+    const results: SoftDeletedRecord[] = [];
+
+    // Customers
+    const allCustomers = storageService.getAllCustomersRaw();
+    allCustomers.filter((c: any) => c.isDeleted).forEach((c: any) => {
+      results.push({
+        id: c.id,
+        type: 'customer',
+        record: c,
+        deletedBy: c.deletedBy || 'غير معروف',
+        deletedAt: c.deletedAt || '',
+        description: c._deleteDescription || `زبون: ${c.name} (#${c.serialNumber})`,
+      });
+    });
+
+    // Products
+    const allProducts = storageService.getAllProductsRaw();
+    allProducts.filter((p: any) => p.isDeleted).forEach((p: any) => {
+      results.push({
+        id: p.id,
+        type: 'product',
+        record: p,
+        deletedBy: p.deletedBy || 'غير معروف',
+        deletedAt: p.deletedAt || '',
+        description: p._deleteDescription || `نوع: ${p.name} (${p.size})`,
+      });
+    });
+
+    // Invoices
+    const allInvoices = storageService.getAllInvoicesRaw();
+    allInvoices.filter((i: any) => i.isDeleted).forEach((i: any) => {
+      results.push({
+        id: i.id,
+        type: 'invoice',
+        record: i,
+        deletedBy: i.deletedBy || 'غير معروف',
+        deletedAt: i.deletedAt || '',
+        description: i._deleteDescription || `فاتورة - ${i.customerName} - ${i.totalAmount} شيكل`,
+      });
+    });
+
+    // Repayments
+    const allRepayments = storageService.getAllRepaymentsRaw();
+    allRepayments.filter((r: any) => r.isDeleted).forEach((r: any) => {
+      results.push({
+        id: r.id,
+        type: 'repayment',
+        record: r,
+        deletedBy: r.deletedBy || 'غير معروف',
+        deletedAt: r.deletedAt || '',
+        description: r._deleteDescription || `سداد ${r.amount} شيكل - ${r.customerName}`,
+      });
+    });
+
+    // Cylinder Transactions
+    const allTx = storageService.getAllCylinderTransactionsRaw();
+    allTx.filter((t: any) => t.isDeleted).forEach((t: any) => {
+      results.push({
+        id: t.id,
+        type: 'cylinder_transaction',
+        record: t,
+        deletedBy: t.deletedBy || 'غير معروف',
+        deletedAt: t.deletedAt || '',
+        description: t._deleteDescription || `${t.type === 'out' ? 'إعارة' : 'إرجاع'} ${t.quantity} ${t.productName}`,
+      });
+    });
+
+    // Sort by deletedAt descending (newest first)
+    results.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+    return results;
+  },
+
+  /**
+   * Restore a soft-deleted record by clearing isDeleted flag.
+   */
+  restoreFromRecycleBin: (itemId: string): boolean => {
+    const now = new Date().toISOString();
+
+    const unmarkDeleted = (record: any) => {
+      const restored = { ...record };
+      delete restored.isDeleted;
+      delete restored.deletedAt;
+      delete restored.deletedBy;
+      delete restored._deleteDescription;
+      restored.updatedAt = now;
+      return restored;
+    };
+
+    // BUG-32 FIX: ALL collections now have proper syncType — no more null!
+    const collections = [
+      { key: KEYS.CUSTOMERS, rawGetter: storageService.getAllCustomersRaw, syncType: 'customers' },
+      { key: KEYS.PRODUCTS, rawGetter: storageService.getAllProductsRaw, syncType: 'products' },
+      { key: KEYS.INVOICES, rawGetter: storageService.getAllInvoicesRaw, syncType: 'invoices' },
+      { key: KEYS.REPAYMENTS, rawGetter: storageService.getAllRepaymentsRaw, syncType: 'repayments' },
+      { key: KEYS.CYLINDER_TX, rawGetter: storageService.getAllCylinderTransactionsRaw, syncType: 'cylinder_transactions' },
+    ];
+
+    for (const col of collections) {
+      const all = col.rawGetter();
+      const idx = all.findIndex((r: any) => r.id === itemId && r.isDeleted);
+      if (idx !== -1) {
+        all[idx] = unmarkDeleted(all[idx]);
+        persistItem(col.key, JSON.stringify(all));
+        syncToDb(col.syncType, all);
+        // BUG-33 FIX: Recalculate balances after restoring invoices/repayments/cylinders
+        storageService.recalculateCustomerBalances();
+        return true;
+      }
     }
-    return success;
+
+    return false;
   },
 
   restoreMultipleFromRecycleBin: (itemIds: string[]): number => {
@@ -985,7 +1117,50 @@ export const storageService = {
     return restored;
   },
 
-  emptyRecycleBin: () => {
-    persistItem(KEYS.RECYCLE_BIN, JSON.stringify([]));
+  /**
+   * Hard delete: permanently remove all soft-deleted records from localStorage AND Turso.
+   */
+  emptyRecycleBin: async () => {
+    // 1. Remove from localStorage
+    const filterActive = (arr: any[]) => arr.filter((r: any) => !r.isDeleted);
+
+    const cleanCustomers = filterActive(storageService.getAllCustomersRaw());
+    const cleanProducts = filterActive(storageService.getAllProductsRaw());
+    const cleanInvoices = filterActive(storageService.getAllInvoicesRaw());
+    const cleanRepayments = filterActive(storageService.getAllRepaymentsRaw());
+    const cleanCylinderTx = filterActive(storageService.getAllCylinderTransactionsRaw());
+
+    persistItem(KEYS.CUSTOMERS, JSON.stringify(cleanCustomers));
+    persistItem(KEYS.PRODUCTS, JSON.stringify(cleanProducts));
+    persistItem(KEYS.INVOICES, JSON.stringify(cleanInvoices));
+    persistItem(KEYS.REPAYMENTS, JSON.stringify(cleanRepayments));
+    persistItem(KEYS.CYLINDER_TX, JSON.stringify(cleanCylinderTx));
+
+    // 2. Also remove old legacy recycle bin data if it exists
+    try {
+      localStorage.removeItem(KEYS.RECYCLE_BIN);
+      idbStorage.setItem(KEYS.RECYCLE_BIN, '[]').catch(() => {});
+    } catch {}
+
+    // 3. BUG-36 FIX: Sync cleaned data to Turso (overwrite soft-deleted records)
+    if (isDatabaseConfigured()) {
+      try {
+        // First try hard-delete API if available
+        await dataService.hardDeleteAllSoftDeleted();
+      } catch (e) {
+        console.warn('hardDeleteAllSoftDeleted not available, syncing clean data instead:', e);
+      }
+      // Always re-sync the clean data to ensure cloud matches local
+      try {
+        await dataService.saveAllCustomers(cleanCustomers);
+        await dataService.saveAllProducts(cleanProducts);
+        for (const inv of cleanInvoices) { await dataService.addInvoice(inv); }
+        for (const rep of cleanRepayments) { await dataService.addRepayment(rep); }
+        for (const tx of cleanCylinderTx) { await dataService.addCylinderTransaction(tx); }
+      } catch (syncErr) {
+        console.error('Failed to sync cleaned data to Turso:', syncErr);
+        markSyncNeeded();
+      }
+    }
   },
-};
+};

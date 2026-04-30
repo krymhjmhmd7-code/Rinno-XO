@@ -44,6 +44,11 @@ export const AccessControlSection: React.FC<AccessControlSectionProps> = ({ sett
   };
 
   const handleSavePassword = () => {
+    // BUG-41 FIX: Prevent saving empty password
+    if (!password.trim()) {
+      setMessage('كلمة المرور لا يمكن أن تكون فارغة');
+      return;
+    }
     if (password !== confirmPassword) {
       setMessage('كلمات المرور غير متطابقة');
       return;

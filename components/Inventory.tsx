@@ -39,13 +39,14 @@ export const Inventory: React.FC<InventoryProps> = ({ products, onUpdate }) => {
     }
 
     if (editingId) {
-      onUpdate(products.map(p => p.id === editingId ? { ...p, ...formData } as Product : p));
+      onUpdate(products.map(p => p.id === editingId ? { ...p, ...formData, updatedAt: new Date().toISOString() } as Product : p));
     } else {
       const newProduct: Product = {
         id: crypto.randomUUID(),
         name: formData.name!,
         size: formData.size || 'عام',
         isActive: true,
+        updatedAt: new Date().toISOString()
       };
       onUpdate([...products, newProduct]);
     }
@@ -62,7 +63,7 @@ export const Inventory: React.FC<InventoryProps> = ({ products, onUpdate }) => {
       if (product) {
         storageService.moveToRecycleBin('product', product, `نوع: ${product.name} (${product.size})`);
       }
-      onUpdate(products.filter(p => p.id !== editingId));
+      onUpdate(storageService.getProducts());
       setShowModal(false);
       setEditingId(null);
     });

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   ShoppingCart, Users, TrendingUp, Banknote, AlertOctagon,
-  Wallet, Cylinder, Cloud, Search, FileText, Phone
+  Wallet, Cylinder, Cloud, Search, FileText, Phone, Clock, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Customer, Invoice, Repayment, ViewState } from '../types';
 import { storageService } from '../services/storage';
@@ -27,6 +27,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(CUSTOMERS_PER_PAGE);
+  const [showInactiveList, setShowInactiveList] = useState(false);
 
   // Memoized: today's date (recalculated only when invoices change)
   const today = useMemo(() => {
@@ -66,14 +67,48 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const visibleCustomers = filteredCustomers.slice(0, visibleCount);
   const hasMore = filteredCustomers.length > visibleCount;
 
-  // Backup alert logic (computed once per render, cheap)
+  // BUG-25 FIX: Include onDataRefresh in deps so alert updates after backup
   const backupAlert = useMemo(() => {
     const settings = storageService.getSettings();
     const lastDate = settings.lastBackupDate ? new Date(settings.lastBackupDate) : new Date(0);
     const now = new Date();
     const diffHours = Math.abs(now.getTime() - lastDate.getTime()) / 36e5;
     return diffHours > 24 ? Math.floor(diffHours) : null;
-  }, []);
+  }, [customers]);
+
+  // Memoized: inactive customers (no invoices or repayments for 30+ days)
+  const INACTIVE_DAYS = 30;
+  const inactiveCustomers = useMemo(() => {
+    const now = new Date().getTime();
+    const threshold = INACTIVE_DAYS * 24 * 60 * 60 * 1000;
+
+    return customers
+      .filter(c => c.balance > 0) // Only flag customers who still owe money
+      .map(customer => {
+        // Find last invoice date for this customer
+        const lastInvoice = invoices
+          .filter(inv => inv.customerId === customer.id)
+          .reduce((latest, inv) => {
+            const d = new Date(inv.date).getTime();
+            return d > latest ? d : latest;
+          }, 0);
+
+        // Find last repayment date for this customer
+        const lastRepayment = repayments
+          .filter(rep => rep.customerId === customer.id)
+          .reduce((latest, rep) => {
+            const d = new Date(rep.date).getTime();
+            return d > latest ? d : latest;
+          }, 0);
+
+        const lastActivity = Math.max(lastInvoice, lastRepayment);
+        const daysSince = lastActivity > 0 ? Math.floor((now - lastActivity) / (24 * 60 * 60 * 1000)) : 999;
+
+        return { ...customer, daysSince, lastActivity };
+      })
+      .filter(c => c.daysSince >= INACTIVE_DAYS)
+      .sort((a, b) => b.daysSince - a.daysSince);
+  }, [customers, invoices, repayments]);
 
   const handleBackup = async () => {
     try {
@@ -117,6 +152,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             حفظ ومشاركة الآن
           </button>
+        </div>
+      )}
+
+      {/* Inactive Customers Alert */}
+      {inactiveCustomers.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden">
+          <button
+            onClick={() => setShowInactiveList(!showInactiveList)}
+            className="w-full p-4 flex items-center justify-between hover:bg-amber-100 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-100 rounded-full text-amber-600">
+                <Clock size={20} />
+              </div>
+              <div className="text-right">
+                <h4 className="font-bold text-amber-800">زبائن خاملون ⚠️</h4>
+                <p className="text-xs text-amber-600">
+                  {inactiveCustomers.length} زبون لم يسجل أي نشاط منذ {INACTIVE_DAYS}+ يوم ولديهم ديون مستحقة
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="bg-amber-600 text-white text-sm font-bold px-3 py-1 rounded-full">
+                {inactiveCustomers.length}
+              </span>
+              {showInactiveList ? <ChevronUp size={20} className="text-amber-600" /> : <ChevronDown size={20} className="text-amber-600" />}
+            </div>
+          </button>
+          {showInactiveList && (
+            <div className="border-t border-amber-200 max-h-64 overflow-y-auto">
+              {inactiveCustomers.map(customer => (
+                <div
+                  key={customer.id}
+                  className="p-3 px-4 border-b border-amber-100 flex items-center justify-between hover:bg-amber-100 transition cursor-pointer"
+                  onClick={() => { setPreSelectedCustomerId(customer.id); setActiveView('customers'); }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-amber-200 text-amber-700 rounded-full flex items-center justify-center font-bold text-sm">
+                      {customer.serialNumber}
+                    </div>
+                    <div>
+                      <span className="font-bold text-gray-800">{customer.name}</span>
+                      <span className="text-xs text-gray-500 mr-2">({customer.city})</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-lg font-bold">
+                      {customer.daysSince} يوم
+                    </span>
+                    <span className="text-sm font-black text-red-600">
+                      {customer.balance.toLocaleString()} شيكل
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

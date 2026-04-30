@@ -164,7 +164,7 @@ export const CustomerHistory: React.FC<CustomerHistoryProps> = ({
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {history.length === 0 ? (
-                                <tr><td colSpan={6} className="p-8 text-center text-gray-500 text-lg">لا توجد حركات مسجلة لهذا الزبون.</td></tr>
+                                <tr><td colSpan={7} className="p-8 text-center text-gray-500 text-lg">لا توجد حركات مسجلة لهذا الزبون.</td></tr>
                             ) : (
                                 ledgerHistory.map(ledgerRow => {
                                     const item = ledgerRow.originalItem;

@@ -41,8 +41,12 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
     cancelDelete
   } = useDeletePassword();
 
+  // BUG-31 FIX: Separate concerns — load transactions on mount & customer changes, init product only on product changes
   useEffect(() => {
     setTransactions(storageService.getCylinderTransactions());
+  }, [customers]);
+
+  useEffect(() => {
     if (products.length > 0 && !selectedProductName) {
       setSelectedProductName(products[0].name);
     }
@@ -125,7 +129,8 @@ export const CylinderLoans: React.FC<CylinderLoansProps> = ({ customers, product
       quantity: Number(quantity),
       type,
       date: new Date().toISOString(),
-      note
+      note,
+      updatedAt: new Date().toISOString()
     };
 
     storageService.addCylinderTransaction(tx);

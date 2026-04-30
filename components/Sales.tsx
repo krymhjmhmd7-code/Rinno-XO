@@ -225,8 +225,17 @@ ${itemsList}
   const handleCheckout = () => {
     if (!selectedCustomerId || cart.length === 0) return;
 
-    // Safety check for total amount? Assuming 0 is allowed for gifts, but warning might be good.
-    // For now, allow it.
+    // BUG-20 FIX: Prevent zero-amount invoices
+    if (manualTotal <= 0) {
+      alert('يرجى إدخال مبلغ المجموع. لا يمكن إنشاء فاتورة بمبلغ صفر.');
+      return;
+    }
+
+    // BUG-21 FIX: Prevent overpayment (paid more than total)
+    if (cashAmount + chequeAmount > manualTotal) {
+      alert(`المبلغ المدفوع (${cashAmount + chequeAmount}) أكبر من المجموع (${manualTotal}). يرجى تعديل المبالغ.`);
+      return;
+    }
 
     const invoice: Invoice = {
       id: crypto.randomUUID(),
@@ -241,7 +250,8 @@ ${itemsList}
         cheque: chequeAmount,
         chequeNumber: chequeNumber,
         debt: remainingDebt
-      }
+      },
+      updatedAt: new Date().toISOString()
     };
 
     onCompleteSale(invoice);

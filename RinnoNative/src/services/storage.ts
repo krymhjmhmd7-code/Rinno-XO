@@ -98,14 +98,16 @@ class StorageService {
         let hasChanges = false;
 
         const updatedCustomers = customers.map(customer => {
+            if (customer.isDeleted) return customer;
+
             // Calculate balance from invoices (debt amounts only)
             const invoiceDebt = invoices
-                .filter(inv => inv.customerId === customer.id)
+                .filter(inv => inv.customerId === customer.id && !inv.isDeleted)
                 .reduce((sum, inv) => sum + (inv.paymentDetails?.debt || 0), 0);
 
             // Calculate payments from repayments
             const totalRepayments = repayments
-                .filter(rep => rep.customerId === customer.id)
+                .filter(rep => rep.customerId === customer.id && !rep.isDeleted)
                 .reduce((sum, rep) => sum + rep.amount, 0);
 
             const correctBalance = invoiceDebt - totalRepayments;

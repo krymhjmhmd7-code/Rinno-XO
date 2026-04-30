@@ -3,7 +3,7 @@ import { Trash2, RotateCcw, CheckSquare, Square, AlertTriangle, Shield, User, Cl
 import { useDeletePassword } from '../hooks/useDeletePassword';
 import { DeletePasswordModal } from './DeletePasswordModal';
 import { storageService } from '../services/storage';
-import { DeletedItem } from '../types';
+import { SoftDeletedRecord } from '../types';
 
 const TYPE_LABELS: Record<string, string> = {
   customer: 'زبون',
@@ -34,7 +34,7 @@ interface RecycleBinProps {
 }
 
 export const RecycleBin: React.FC<RecycleBinProps> = ({ onUpdate }) => {
-  const [items, setItems] = useState<DeletedItem[]>([]);
+  const [items, setItems] = useState<SoftDeletedRecord[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterType, setFilterType] = useState<string>('all');
   const {
@@ -94,10 +94,11 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ onUpdate }) => {
   };
 
   const handleEmptyBin = () => {
-    requestDelete(() => {
-      storageService.emptyRecycleBin();
+    requestDelete(async () => {
+      await storageService.emptyRecycleBin();
       showSuccess('تم تفريغ سلة المحذوفات نهائياً');
       refreshItems();
+      onUpdate();
     });
   };
 

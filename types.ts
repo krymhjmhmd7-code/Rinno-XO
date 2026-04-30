@@ -1,7 +1,14 @@
 
 export type CustomerType = string;
 
-export interface Customer {
+// Shared soft-delete fields
+export interface SoftDeletable {
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+}
+
+export interface Customer extends SoftDeletable {
   id: string;
   serialNumber: number;
   name: string;
@@ -17,7 +24,7 @@ export interface Customer {
   updatedAt?: string;
 }
 
-export interface Product {
+export interface Product extends SoftDeletable {
   id: string;
   name: string;
   size: string;
@@ -39,7 +46,7 @@ export interface PaymentDetails {
   chequeDate?: string;
 }
 
-export interface Invoice {
+export interface Invoice extends SoftDeletable {
   id: string;
   customerId: string;
   customerName: string;
@@ -51,7 +58,7 @@ export interface Invoice {
   updatedAt?: string;
 }
 
-export interface Repayment {
+export interface Repayment extends SoftDeletable {
   id: string;
   customerId: string;
   customerName: string;
@@ -62,16 +69,17 @@ export interface Repayment {
   updatedAt?: string;
 }
 
-export interface DeletedItem {
+// Unified soft-deleted record view for RecycleBin UI
+export interface SoftDeletedRecord {
   id: string;
   type: 'customer' | 'invoice' | 'repayment' | 'cylinder_transaction' | 'product';
-  data: any;
+  record: any;
   deletedBy: string;
   deletedAt: string;
   description: string;
 }
 
-export interface CylinderTransaction {
+export interface CylinderTransaction extends SoftDeletable {
   id: string;
   customerId: string;
   customerName: string;

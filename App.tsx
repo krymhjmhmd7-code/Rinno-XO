@@ -170,19 +170,22 @@ export const App: React.FC = () => {
     setCustomers(storageService.getCustomers());
   };
 
+  // BUG-29 FIX: Wrap setActiveView to clear stale preSelectedCustomerId
+  const navigateTo = (view: ViewState, customerId?: string) => {
+    setPreSelectedCustomerId(customerId || null);
+    setActiveView(view);
+  };
+
   const handleNavigateToSale = (customerId: string) => {
-    setPreSelectedCustomerId(customerId);
-    setActiveView('sales');
+    navigateTo('sales', customerId);
   };
 
   const handleNavigateToDebt = (customerId: string) => {
-    setPreSelectedCustomerId(customerId);
-    setActiveView('debts');
+    navigateTo('debts', customerId);
   };
 
   const handleNavigateToCylinders = (customerId: string) => {
-    setPreSelectedCustomerId(customerId);
-    setActiveView('cylinder_loans');
+    navigateTo('cylinder_loans', customerId);
   };
 
   const refreshData = () => {

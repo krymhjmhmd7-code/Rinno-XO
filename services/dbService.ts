@@ -144,6 +144,19 @@ export const initializeDatabase = async (): Promise<boolean> => {
           )
         `);
 
+        // --- Soft Delete & Sync Migration: Add columns if missing ---
+        const syncTables = ['customers', 'products', 'invoices', 'repayments', 'cylinder_transactions'];
+        for (const table of syncTables) {
+          for (const col of ['is_deleted', 'deleted_at', 'deleted_by', 'updated_at']) {
+            try {
+              const defaultVal = col === 'is_deleted' ? 'INTEGER DEFAULT 0' : 'TEXT';
+              await tursoClient.execute(`ALTER TABLE ${table} ADD COLUMN ${col} ${defaultVal}`);
+            } catch {
+              // Column already exists — safe to ignore
+            }
+          }
+        }
+
         console.log('Database tables initialized successfully');
         return true;
     } catch (error) {
@@ -249,7 +262,11 @@ export const dataService = {
                 whatsapp: row.whatsapp as string,
                 totalPurchases: row.total_purchases as number,
                 balance: row.balance as number,
-                cylinderBalance: row.cylinder_balance ? JSON.parse(row.cylinder_balance as string) : {}
+                cylinderBalance: row.cylinder_balance ? JSON.parse(row.cylinder_balance as string) : {},
+                isDeleted: row.is_deleted === 1,
+                deletedAt: row.deleted_at as string || undefined,
+                deletedBy: row.deleted_by as string || undefined,
+                updatedAt: row.updated_at as string || undefined,
             }));
         } catch {
             return [];
@@ -260,9 +277,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT OR REPLACE INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {})]
+                sql: `INSERT OR REPLACE INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance, is_deleted, deleted_at, deleted_by, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {}), customer.isDeleted ? 1 : 0, customer.deletedAt || null, customer.deletedBy || null, customer.updatedAt || new Date().toISOString()]
             });
             return true;
         } catch {
@@ -276,9 +293,9 @@ export const dataService = {
             const tx = await tursoClient.transaction('write');
             for (const customer of customers) {
                 await tx.execute({
-                    sql: `INSERT OR REPLACE INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {})]
+                    sql: `INSERT OR REPLACE INTO customers (id, serial_number, name, type, city, village, neighborhood, phone, whatsapp, total_purchases, balance, cylinder_balance, is_deleted, deleted_at, deleted_by, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    args: [customer.id, customer.serialNumber, customer.name, customer.type, customer.city, customer.village, customer.neighborhood, customer.phone, customer.whatsapp, customer.totalPurchases, customer.balance, JSON.stringify(customer.cylinderBalance || {}), customer.isDeleted ? 1 : 0, customer.deletedAt || null, customer.deletedBy || null, customer.updatedAt || new Date().toISOString()]
                 });
             }
             await tx.commit();
@@ -298,7 +315,11 @@ export const dataService = {
                 id: row.id as string,
                 name: row.name as string,
                 size: row.size as string,
-                isActive: row.is_active === 1
+                isActive: row.is_active === 1,
+                isDeleted: row.is_deleted === 1,
+                deletedAt: row.deleted_at as string || undefined,
+                deletedBy: row.deleted_by as string || undefined,
+                updatedAt: row.updated_at as string || undefined,
             }));
         } catch {
             return [];
@@ -309,8 +330,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT OR REPLACE INTO products (id, name, size, is_active) VALUES (?, ?, ?, ?)`,
-                args: [product.id, product.name, product.size, product.isActive ? 1 : 0]
+                // BUG-45 FIX: Include soft-delete fields to prevent INSERT OR REPLACE from wiping them
+                sql: `INSERT OR REPLACE INTO products (id, name, size, is_active, is_deleted, deleted_at, deleted_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [product.id, product.name, product.size, product.isActive ? 1 : 0, product.isDeleted ? 1 : 0, product.deletedAt || null, product.deletedBy || null, product.updatedAt || new Date().toISOString()]
             });
             return true;
         } catch {
@@ -324,8 +346,8 @@ export const dataService = {
             const tx = await tursoClient.transaction('write');
             for (const product of products) {
                 await tx.execute({
-                    sql: `INSERT OR REPLACE INTO products (id, name, size, is_active) VALUES (?, ?, ?, ?)`,
-                    args: [product.id, product.name, product.size, product.isActive ? 1 : 0]
+                    sql: `INSERT OR REPLACE INTO products (id, name, size, is_active, is_deleted, deleted_at, deleted_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    args: [product.id, product.name, product.size, product.isActive ? 1 : 0, product.isDeleted ? 1 : 0, product.deletedAt || null, product.deletedBy || null, product.updatedAt || new Date().toISOString()]
                 });
             }
             await tx.commit();
@@ -335,7 +357,6 @@ export const dataService = {
         }
     },
 
-    // Invoices
     async getInvoices() {
         if (!tursoClient) return [];
         try {
@@ -348,7 +369,11 @@ export const dataService = {
                 items: JSON.parse(row.items as string),
                 totalAmount: row.total_amount as number,
                 paymentDetails: JSON.parse(row.payment_details as string),
-                status: row.status as string
+                status: row.status as string,
+                isDeleted: row.is_deleted === 1,
+                deletedAt: row.deleted_at as string || undefined,
+                deletedBy: row.deleted_by as string || undefined,
+                updatedAt: row.updated_at as string || undefined,
             }));
         } catch {
             return [];
@@ -359,9 +384,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT INTO invoices (id, customer_id, customer_name, date, items, total_amount, payment_details, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                args: [invoice.id, invoice.customerId, invoice.customerName, invoice.date, JSON.stringify(invoice.items), invoice.totalAmount, JSON.stringify(invoice.paymentDetails), invoice.status]
+                sql: `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, items, total_amount, payment_details, status, is_deleted, deleted_at, deleted_by, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [invoice.id, invoice.customerId, invoice.customerName, invoice.date, JSON.stringify(invoice.items), invoice.totalAmount, JSON.stringify(invoice.paymentDetails), invoice.status, invoice.isDeleted ? 1 : 0, invoice.deletedAt || null, invoice.deletedBy || null, invoice.updatedAt || new Date().toISOString()]
             });
             return true;
         } catch {
@@ -395,7 +420,6 @@ export const dataService = {
         }
     },
 
-    // Repayments
     async getRepayments() {
         if (!tursoClient) return [];
         try {
@@ -407,7 +431,11 @@ export const dataService = {
                 amount: row.amount as number,
                 date: row.date as string,
                 method: row.method as string,
-                note: row.note as string
+                note: row.note as string,
+                isDeleted: row.is_deleted === 1,
+                deletedAt: row.deleted_at as string || undefined,
+                deletedBy: row.deleted_by as string || undefined,
+                updatedAt: row.updated_at as string || undefined,
             }));
         } catch {
             return [];
@@ -418,9 +446,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT INTO repayments (id, customer_id, customer_name, amount, date, method, note)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                args: [repayment.id, repayment.customerId, repayment.customerName, repayment.amount, repayment.date, repayment.method, repayment.note || '']
+                sql: `INSERT OR REPLACE INTO repayments (id, customer_id, customer_name, amount, date, method, note, is_deleted, deleted_at, deleted_by, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [repayment.id, repayment.customerId, repayment.customerName, repayment.amount, repayment.date, repayment.method, repayment.note || '', repayment.isDeleted ? 1 : 0, repayment.deletedAt || null, repayment.deletedBy || null, repayment.updatedAt || new Date().toISOString()]
             });
             return true;
         } catch {
@@ -454,7 +482,6 @@ export const dataService = {
         }
     },
 
-    // Cylinder Transactions
     async getCylinderTransactions() {
         if (!tursoClient) return [];
         try {
@@ -467,7 +494,11 @@ export const dataService = {
                 quantity: row.quantity as number,
                 type: row.type as string,
                 date: row.date as string,
-                note: row.note as string
+                note: row.note as string,
+                isDeleted: row.is_deleted === 1,
+                deletedAt: row.deleted_at as string || undefined,
+                deletedBy: row.deleted_by as string || undefined,
+                updatedAt: row.updated_at as string || undefined,
             }));
         } catch {
             return [];
@@ -478,9 +509,9 @@ export const dataService = {
         if (!tursoClient) return false;
         try {
             await tursoClient.execute({
-                sql: `INSERT INTO cylinder_transactions (id, customer_id, customer_name, product_name, quantity, type, date, note)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                args: [tx.id, tx.customerId, tx.customerName, tx.productName, tx.quantity, tx.type, tx.date, tx.note || '']
+                sql: `INSERT OR REPLACE INTO cylinder_transactions (id, customer_id, customer_name, product_name, quantity, type, date, note, is_deleted, deleted_at, deleted_by, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [tx.id, tx.customerId, tx.customerName, tx.productName, tx.quantity, tx.type, tx.date, tx.note || '', tx.isDeleted ? 1 : 0, tx.deletedAt || null, tx.deletedBy || null, tx.updatedAt || new Date().toISOString()]
             });
             return true;
         } catch {
@@ -572,5 +603,38 @@ export const dataService = {
             console.error('Failed to get usage stats', e);
             return { sizeBytes: 0, rows: 0 };
         }
-    }
+    },
+
+    // --- Hard Delete: permanently remove soft-deleted records ---
+    async hardDeleteByIds(table: string, ids: string[]) {
+        if (!tursoClient || ids.length === 0) return false;
+        try {
+            const tx = await tursoClient.transaction('write');
+            for (const id of ids) {
+                await tx.execute({ sql: `DELETE FROM ${table} WHERE id = ?`, args: [id] });
+            }
+            await tx.commit();
+            return true;
+        } catch (e) {
+            console.error(`Failed to hard delete from ${table}`, e);
+            return false;
+        }
+    },
+
+    async hardDeleteAllSoftDeleted() {
+        if (!tursoClient) return false;
+        try {
+            const tx = await tursoClient.transaction('write');
+            await tx.execute('DELETE FROM customers WHERE is_deleted = 1');
+            await tx.execute('DELETE FROM products WHERE is_deleted = 1');
+            await tx.execute('DELETE FROM invoices WHERE is_deleted = 1');
+            await tx.execute('DELETE FROM repayments WHERE is_deleted = 1');
+            await tx.execute('DELETE FROM cylinder_transactions WHERE is_deleted = 1');
+            await tx.commit();
+            return true;
+        } catch (e) {
+            console.error('Failed to hard delete all soft-deleted records', e);
+            return false;
+        }
+    },
 };
